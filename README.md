@@ -10,6 +10,7 @@ Next.js 16 (App Router) 학습용 프로젝트. SQLite 를 붙인 작은 앱 두
 - Tailwind CSS v4, shadcn/ui (style: base-nova)
 - SQLite (Node.js 내장 `node:sqlite`, 별도 패키지 없음)
 - SWR, TanStack Query (클라이언트 사이드 페칭 비교용)
+- Zod (폼 검증)
 - ESLint
 
 ## 시작하기
@@ -109,6 +110,7 @@ Next.js 16 에서는 ISR 을 별도 설정이 아니라 `"use cache"` + `cacheLi
 | 10 | 특수 파일: `loading`, `error`, `not-found` | `src/app/posts/[id]/`, `src/app/posts/error.tsx` |
 | 11 | Suspense 스트리밍 | `src/app/posts/[id]/other-posts.tsx` |
 | 12 | 클라이언트 사이드 페칭: fetch, SWR, TanStack Query | `src/app/posts/client/` |
+| 13 | 폼 검증: 손 검증 vs Zod 스키마 | `src/app/todos/actions.ts` vs `src/lib/schemas/post.ts` |
 
 ---
 
@@ -236,6 +238,31 @@ SWR 과 TanStack Query 는 같은 문제를 푸는 경쟁 라이브러리다. Ne
 
 `layout.tsx` 에서 Provider 를 `/posts/client` 세그먼트에만 적용했다. 앱 전체(root layout)에 두지 않은 것은 필요한 범위에만 두기 위해서다.
 
+### 2-8. 폼 검증: 손 검증 vs Zod
+
+같은 "서버에서 입력값 검증" 을 두 방식으로 구현해 두었다. 어느 쪽이든 **검증은 서버에서** 한다. 브라우저의 `required`, `maxLength` 는 편의일 뿐 우회할 수 있다.
+
+| | 손 검증 — todos | Zod — posts |
+| --- | --- | --- |
+| 파일 | `src/app/todos/actions.ts` 의 `parseTitle` | `src/lib/schemas/post.ts` + `src/app/posts/actions.ts` |
+| 규칙 정의 | `if` 문 나열 | `z.object({...})` 스키마 하나에 선언 |
+| 에러 형태 | 문자열 하나 (`{ error: "..." }`) | 필드별 배열 (`{ title: [...], content: [...] }`) |
+| 화면 표시 | 토스트 한 번 | 각 입력창 아래에 해당 메시지 |
+| 타입 | 직접 작성 | `z.infer<typeof schema>` 로 자동 추출 |
+| 재사용 | 어려움 | 같은 스키마를 API, 브라우저 검증에도 사용 가능 |
+
+판단 기준: 필드가 하나뿐인 todos 는 손 검증이 더 짧고 명확하다. 필드가 여럿이고 각각 다른 메시지가 필요한 posts 부터 Zod 가 값어치를 한다.
+
+Zod 쪽 핵심 코드 흐름 (`createPostAction`):
+1. `formData` 에서 값을 꺼내 문자열로 만든다.
+2. `postSchema.safeParse(raw)` — 예외 대신 `{ success, data | error }` 를 돌려준다.
+3. 실패면 `z.flattenError(error).fieldErrors` 와 입력값을 함께 반환한다. 폼이 `useActionState` 로 받아 표시한다.
+4. 성공이면 `result.data` 는 trim 이 적용된 `PostInput` 타입이다.
+
+확인 방법: `/posts` 하단 폼에서 빈 제목, 101자 제목, 빈 내용을 넣어 보면 입력창별로 다른 메시지가 붙는다. 폼에 `noValidate` 를 둬서 브라우저 검증을 끄고 서버 검증만 보이게 했다.
+
+다음 단계로는 같은 스키마를 브라우저에서도 써서 전송 전에 검증하는 방식(react-hook-form + `@hookform/resolvers/zod`)이 있다. 이때도 서버 검증은 그대로 둔다.
+
 ---
 
 ## 빌드 결과 읽는 법
@@ -306,7 +333,7 @@ src/
     posts/
       layout.tsx    # /posts 공통 네비게이션
       page.tsx      # 목록 (use cache, ISR)
-      actions.ts    # 작성 / 삭제 / updateTag / revalidateTag
+      actions.ts    # 작성(Zod 검증) / 삭제 / updateTag / revalidateTag
       error.tsx     # Error Boundary
       cache-controls.tsx, new-post-form.tsx
       [id]/
@@ -327,6 +354,7 @@ src/
       posts/route.ts  # 검색 API (?q=)
   components/ui/    # shadcn/ui 컴포넌트
   lib/
+    schemas/post.ts # Zod 검증 스키마 (posts 폼)
     db.ts           # SQLite 연결 (앱 전체에서 하나 공유)
     todos.ts        # todos 접근 함수 (connection() 으로 SSR)
     posts.ts        # posts 접근 함수 (일부 "use cache")

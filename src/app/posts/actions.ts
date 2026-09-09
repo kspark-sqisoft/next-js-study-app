@@ -1,14 +1,22 @@
 // posts 관련 Server Actions.
 // 데이터를 바꾼 뒤에는 캐시 태그를 무효화해서 "use cache" 된 조회 결과가 새로 만들어지게 한다.
+//
+// 폼 검증은 Zod 스키마(src/lib/schemas/post.ts)로 한다.
+// 손으로 검증하는 todos/actions.ts 의 parseTitle 과 비교해 보자:
+// - 규칙이 if 문이 아니라 스키마 객체 하나에 선언되어 있다
+// - 에러가 문자열 하나가 아니라 필드별 배열로 나온다 → 입력창마다 메시지를 붙일 수 있다
+// - 검증을 통과한 값은 이미 trim 되어 있고 타입도 보장된다
 "use server";
 
 import { revalidateTag, updateTag } from "next/cache";
 import { redirect } from "next/navigation";
+import { z } from "zod";
 import { createPost, deletePost } from "@/lib/posts";
+import { postSchema, type PostFieldErrors } from "@/lib/schemas/post";
 
 export type PostFormState = {
-  error?: string;
-  fields?: { title: string; content: string };
+  errors?: PostFieldErrors; // 필드별 에러
+  fields?: { title: string; content: string }; // 실패 시 입력값 복원용
 } | null;
 
 // 글 작성. 성공하면 updateTag 로 목록 캐시를 즉시 만료시키고 상세 페이지로 이동한다.
@@ -16,17 +24,23 @@ export async function createPostAction(
   _prev: PostFormState,
   formData: FormData,
 ): Promise<PostFormState> {
-  const title = String(formData.get("title") ?? "").trim();
-  const content = String(formData.get("content") ?? "").trim();
+  // FormData 에서 꺼낸 값은 string | File | null 이라 일단 문자열로 만든다
+  const raw = {
+    title: String(formData.get("title") ?? ""),
+    content: String(formData.get("content") ?? ""),
+  };
 
-  if (!title || title.length > 100) {
-    return { error: "제목은 1~100자로 입력하세요.", fields: { title, content } };
-  }
-  if (!content || content.length > 5000) {
-    return { error: "내용은 1~5000자로 입력하세요.", fields: { title, content } };
+  // safeParse: 예외를 던지지 않고 { success, data | error } 를 돌려준다
+  const result = postSchema.safeParse(raw);
+  if (!result.success) {
+    return {
+      errors: z.flattenError(result.error).fieldErrors, // { title?: string[], content?: string[] }
+      fields: raw,
+    };
   }
 
-  const post = createPost(title, content);
+  // result.data 는 PostInput 타입이고 trim 이 적용된 값이다
+  const post = createPost(result.data.title, result.data.content);
 
   // updateTag: 다음 요청이 "새 데이터를 기다렸다가" 응답한다 (read-your-own-writes).
   // 내가 방금 쓴 글이 목록에 바로 보여야 하므로 revalidateTag 대신 이걸 쓴다.
