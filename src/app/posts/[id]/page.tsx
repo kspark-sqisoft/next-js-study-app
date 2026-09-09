@@ -11,9 +11,10 @@ import { notFound } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getPost, getPostIds } from "@/lib/posts";
-import { DeletePostButton } from "./delete-post-button";
+import { CommentsSection } from "./comments-section";
 import { ErrorTrigger } from "./error-trigger";
 import { OtherPosts } from "./other-posts";
+import { PostOwnerActions } from "./post-owner-actions";
 
 // 빌드 시 미리 렌더링할 id. Cache Components 에서는 최소 1개를 돌려줘야 한다.
 // DB 가 비어 있으면(첫 clone 등) 자리표시자를 주고, 페이지에서 notFound() 로 처리한다.
@@ -60,7 +61,7 @@ async function PostDetail({ params }: Pick<PageProps<"/posts/[id]">, "params">) 
           <Badge variant="secondary">#{post.id}</Badge>
         </div>
         <p className="mt-1 text-xs text-muted-foreground">
-          작성 {post.createdAt} · 수정 {post.updatedAt}
+          {post.authorName ?? "작성자 없음"} · 작성 {post.createdAt} · 수정 {post.updatedAt}
         </p>
         {/* whitespace-pre-line: 저장된 줄바꿈을 그대로 표시 */}
         <div className="mt-6 whitespace-pre-line text-sm leading-relaxed">
@@ -68,10 +69,18 @@ async function PostDetail({ params }: Pick<PageProps<"/posts/[id]">, "params">) 
         </div>
       </article>
 
-      <div className="flex gap-2">
-        <DeletePostButton id={post.id} />
+      <div className="flex flex-wrap items-center gap-3">
+        {/* 세션을 읽는 부분만 Suspense. 본문(캐시)은 즉시 나오고 버튼은 요청 시 채워진다 */}
+        <Suspense fallback={<div className="h-7 w-24" />}>
+          <PostOwnerActions postId={post.id} authorId={post.authorId} />
+        </Suspense>
         <ErrorTrigger />
       </div>
+
+      {/* 댓글: 목록은 캐시, 현재 사용자는 요청 시 → Suspense 안에서 합친다 */}
+      <Suspense fallback={<p className="text-sm text-muted-foreground">댓글 불러오는 중...</p>}>
+        <CommentsSection postId={post.id} />
+      </Suspense>
 
       {/* 스트리밍 데모: 이 부분만 1.5초 뒤에 채워진다. 위쪽 본문은 기다리지 않는다. */}
       <section>

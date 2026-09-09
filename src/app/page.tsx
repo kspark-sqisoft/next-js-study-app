@@ -30,6 +30,9 @@ export default function Home() {
             <code className="rounded bg-muted px-1 py-0.5">src/app/page.tsx</code>
             를 수정하면 화면이 바로 갱신됩니다.
           </p>
+          <p className="mt-3 text-sm text-muted-foreground">
+            글 작성과 댓글은 로그인이 필요합니다. 샘플 계정: demo@example.com / password123
+          </p>
         </CardContent>
         <CardFooter className="gap-2">
           {/* Button 스타일을 유지한 채 <a>(Link) 로 렌더링해 /todos 로 이동 */}

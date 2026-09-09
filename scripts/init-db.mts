@@ -6,32 +6,15 @@
 import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
+import { ensureSchema } from "../src/lib/schema.ts";
 
-const DB_PATH = path.resolve(
-  process.cwd(),
-  process.env.DATABASE_PATH ?? "data/app.db", // .env 의 값이 없으면 기본 경로 사용
-);
+const DB_PATH = path.resolve(process.cwd(), process.env.DATABASE_PATH ?? "data/app.db");
 
 fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
 
 const db = new DatabaseSync(DB_PATH);
 db.exec("PRAGMA journal_mode = WAL;");
-db.exec(`
-  CREATE TABLE IF NOT EXISTS todos (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    title      TEXT    NOT NULL,
-    completed  INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT    NOT NULL DEFAULT (datetime('now'))
-  );
-
-  CREATE TABLE IF NOT EXISTS posts (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    title      TEXT    NOT NULL,
-    content    TEXT    NOT NULL,
-    created_at TEXT    NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT    NOT NULL DEFAULT (datetime('now'))
-  );
-`);
+ensureSchema(db);
 
 const tables = db
   .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")

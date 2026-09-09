@@ -7,8 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "db:init": "node --env-file-if-exists=.env scripts/init-db.mts",
-    "db:seed": "node --env-file-if-exists=.env scripts/seed-db.mts"
+    "db:init": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file-if-exists=.env scripts/init-db.mts",
+    "db:seed": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file-if-exists=.env scripts/seed-db.mts"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",
@@ -16,6 +16,7 @@
     "@tanstack/react-query-devtools": "^5.102.8",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.2.6",
+    "jose": "^6.2.12",
     "lucide-react": "^1.43.0",
     "next": "16.3.4",
     "next-themes": "^0.4.6",

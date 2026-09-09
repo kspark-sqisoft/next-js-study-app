@@ -11,14 +11,17 @@ Next.js 16 (App Router) 학습용 프로젝트. SQLite 를 붙인 작은 앱 두
 - SQLite (Node.js 내장 `node:sqlite`, 별도 패키지 없음)
 - SWR, TanStack Query (클라이언트 사이드 페칭 비교용)
 - Zod (폼 검증)
+- jose (세션 JWT 서명). 비밀번호 해시는 Node 내장 crypto.scrypt
 - ESLint
 
 ## 시작하기
 
 ```bash
 npm install
-cp .env.example .env   # DB 파일 경로 설정
-npm run db:seed        # 샘플 데이터 넣기
+cp .env.example .env   # DB 파일 경로 + 세션 서명 키
+# .env 의 SESSION_SECRET 을 아래 명령 결과로 바꾼다
+openssl rand -base64 32
+npm run db:seed        # 샘플 데이터 넣기 (계정 2개 포함)
 npm run dev            # http://localhost:3000
 ```
 
@@ -31,6 +34,13 @@ npm run lint
 npm run db:init        # DB 파일/테이블만 생성 (앱 첫 실행 시 자동으로도 됨)
 npm run db:seed -- --reset   # 샘플 데이터로 초기화
 ```
+
+샘플 계정 (비밀번호는 둘 다 `password123`):
+
+| 이메일 | 이름 | 용도 |
+| --- | --- | --- |
+| demo@example.com | 데모 | 샘플 글 대부분의 작성자 |
+| guest@example.com | 게스트 | "남의 글은 읽기만" 되는지 확인할 때 |
 
 ---
 
@@ -111,6 +121,10 @@ Next.js 16 에서는 ISR 을 별도 설정이 아니라 `"use cache"` + `cacheLi
 | 11 | Suspense 스트리밍 | `src/app/posts/[id]/other-posts.tsx` |
 | 12 | 클라이언트 사이드 페칭: fetch, SWR, TanStack Query | `src/app/posts/client/` |
 | 13 | 폼 검증: 손 검증 vs Zod 스키마 | `src/app/todos/actions.ts` vs `src/lib/schemas/post.ts` |
+| 14 | 인증: 회원 가입, 로그인, 세션 쿠키(JWT) | `src/lib/password.ts`, `src/lib/session.ts`, `src/app/(auth)/` |
+| 15 | 인가: DAL, 작성자만 수정/삭제, proxy | `src/lib/dal.ts`, `src/app/posts/actions.ts`, `src/proxy.ts` |
+| 16 | Cache Components 에서 세션 다루기 | `src/app/layout.tsx`, `src/app/posts/[id]/page.tsx` |
+| 17 | 2단 댓글: 트리 조립, CASCADE, 태그별 캐시 | `src/lib/comments.ts`, `src/app/posts/[id]/comments-section.tsx` |
 
 ---
 
@@ -265,20 +279,86 @@ Zod 쪽 핵심 코드 흐름 (`createPostAction`):
 
 ---
 
+## Part 3. 인증과 권한, 댓글
+
+라이브러리 없이 공식 문서의 방식대로 직접 구현했다. 문서는 인증을 세 개념으로 나눈다.
+
+| 개념 | 하는 일 | 파일 |
+| --- | --- | --- |
+| 인증 (Authentication) | 본인 확인. 회원 가입, 로그인 | `src/app/(auth)/actions.ts`, `src/lib/password.ts`, `src/lib/users.ts` |
+| 세션 (Session) | 로그인 상태를 요청 간에 유지 | `src/lib/session.ts` |
+| 인가 (Authorization) | 누가 무엇을 할 수 있는지 | `src/lib/dal.ts`, 각 Server Action, `src/proxy.ts` |
+
+### 3-1. 회원 가입과 로그인 (`src/app/(auth)/`)
+
+- `(auth)` 는 **라우트 그룹**. 괄호 폴더는 URL 에 안 들어가서 `/login`, `/signup` 이 되고, 두 페이지가 `layout.tsx` 를 공유한다.
+- 가입 흐름: Zod 검증 → 이메일 중복 확인 → 비밀번호 **해시** → DB 저장 → 세션 쿠키 발급 → `redirect`.
+- 비밀번호는 `crypto.scrypt` 로 해시한다 (`src/lib/password.ts`). 사용자마다 다른 salt 를 붙여 같은 비밀번호도 다른 해시가 되고, 비교는 `timingSafeEqual` 로 해서 응답 시간으로 정보가 새지 않게 한다. 문서 예제는 bcrypt 를 쓰는데 원리는 같다.
+- 로그인 실패 메시지는 "이메일 또는 비밀번호가 올바르지 않습니다" 하나로 통일한다. 이메일 존재 여부를 알려 주면 계정 탐색에 쓰일 수 있다.
+
+### 3-2. 세션: 서명된 JWT 쿠키 (`src/lib/session.ts`)
+
+문서가 말하는 두 방식 중 **stateless** 방식이다. 세션을 DB 에 저장하지 않고, `{ userId }` 를 `SESSION_SECRET` 으로 서명한 JWT 를 쿠키에 넣는다.
+
+- 브라우저가 쿠키 내용을 바꾸면 서명 검증에 실패한다. 서명 키는 서버만 안다.
+- 쿠키 옵션: `httpOnly`(JS 로 못 읽음), `sameSite: lax`(CSRF 완화), `secure`(프로덕션에서 https 만), 7일 만료.
+- 쿠키는 반드시 **서버에서** 설정한다. Server Action 안에서 `cookies().set()` 을 호출한다.
+- JWT 안에는 id 정도만 넣는다. 이메일, 비밀번호 같은 것은 넣지 않는다.
+
+### 3-3. 인가: DAL 과 Server Action
+
+문서가 가장 강조하는 원칙은 **"권한 검사는 데이터에 가장 가까운 곳에서"** 다.
+
+- `src/lib/dal.ts` 의 `getCurrentUser()` 가 쿠키 → 세션 → 사용자 조회를 한 곳에서 한다. React `cache()` 로 감싸서 한 렌더링 안에서 여러 번 불려도 한 번만 실행된다.
+- 모든 Server Action 이 첫 줄에서 세션을 **다시 읽고** 검사한다 (`src/app/posts/actions.ts`). 화면에서 버튼을 숨기는 것은 편의일 뿐이다. Server Action 은 브라우저에서 직접 POST 로 호출할 수 있으므로 공개 API 와 같은 수준으로 방어해야 한다.
+- 규칙: 글 작성·댓글 작성은 로그인 필요, 글 수정·삭제·댓글 삭제는 **작성자 본인만**. demo 계정으로 게스트의 글(#6)을 열어 보면 수정 버튼이 없고, URL 로 `/posts/6/edit` 에 직접 들어가도 상세로 돌려보낸다.
+- `src/proxy.ts` 는 요청이 라우트에 닿기 전에 쿠키만 보고 낙관적으로 리다이렉트한다 (비로그인 → `/login`, 로그인 상태에서 `/login` → `/posts`). 문서가 "보조 수단이지 보안 경계가 아니다" 라고 못 박는 부분이다. DB 조회는 하지 않는다.
+
+### 3-4. Cache Components 에서 세션 다루기
+
+세션은 요청 시점 데이터라 정적 셸에 들어갈 수 없다. 그래서 세션을 읽는 컴포넌트는 **항상 `<Suspense>` 안에** 둔다. 이 프로젝트에서 그 경계가 어디에 있는지 보면 패턴이 잡힌다.
+
+| 위치 | 캐시/정적 부분 | Suspense 안 (요청 시 스트리밍) |
+| --- | --- | --- |
+| `src/app/layout.tsx` | 헤더 링크 | `<UserMenu />` 로그인 상태 |
+| `src/app/posts/page.tsx` | 글 목록 (`"use cache"`) | 새 글 폼 (로그인 여부) |
+| `src/app/posts/[id]/page.tsx` | 글 본문 (`"use cache"`) | 수정/삭제 버튼, 댓글 영역 |
+
+레이아웃 최상위에서 세션을 `await` 하면 모든 페이지가 그걸 기다리게 되므로, 반드시 컴포넌트 안으로 밀어 넣어야 한다. 빌드 결과에서 모든 페이지가 `◐ Partial Prerender` 로 바뀐 이유가 헤더의 `<UserMenu />` 다.
+
+캐시된 데이터(댓글 목록)와 요청별 데이터(현재 사용자)를 합치는 방법은 `comments-section.tsx` 에 있다. 캐시된 목록은 모두가 공유하므로 "누가 삭제할 수 있는지" 를 캐시 안에서 판단하면 안 되고, 화면을 그릴 때 현재 사용자와 `authorId` 를 비교한다.
+
+### 3-5. 2단 댓글 (`src/lib/comments.ts`)
+
+- 테이블 하나로 표현한다. `parent_id` 가 NULL 이면 최상위 댓글, 값이 있으면 그 댓글의 답글.
+- 조회는 쿼리 한 번으로 평탄한 목록을 가져와 서버에서 트리로 조립한다 (`getCommentThreads`).
+- **2단 제한** 은 액션에서 검사한다: 부모가 같은 글의 최상위 댓글일 때만 답글을 허용한다.
+- 최상위 댓글을 지우면 답글도 함께 지워진다. `ON DELETE CASCADE` 와 `PRAGMA foreign_keys = ON` 이 그 역할을 한다. 글을 지우면 댓글 전체가 같이 지워지는 것도 같은 원리.
+- 댓글 목록은 글마다 다른 태그(`post-3-comments`)로 캐시된다. 댓글을 쓰면 그 글의 태그만 무효화되고 다른 글의 캐시는 그대로다.
+
+### 3-6. 스키마 변경을 직접 관리하기 (`src/lib/schema.ts`)
+
+인증을 붙이면서 `posts` 에 `author_id` 컬럼이 추가됐다. `CREATE TABLE IF NOT EXISTS` 는 이미 있는 테이블을 건드리지 않으므로, `ensureSchema()` 가 `PRAGMA table_info` 로 컬럼을 확인하고 없으면 `ALTER TABLE` 로 추가한다. Prisma 나 Drizzle 의 마이그레이션이 자동으로 해 주는 일을 손으로 한 것이다. 스키마 정의를 앱과 스크립트가 공유하도록 이 파일 하나에 모았다.
+
+---
+
 ## 빌드 결과 읽는 법
 
 `npm run build` 마지막에 출력되는 표:
 
 ```
-○ /                    Static
-○ /posts               Static  (Revalidate 1m, Expire 1h)
+◐ /                    Partial Prerender   (헤더의 로그인 상태가 Suspense 안에서 스트리밍)
+◐ /login, /signup      Partial Prerender
+◐ /posts               Partial Prerender   (Revalidate 1m, Expire 1h — 목록은 ISR)
 ◐ /posts/[id]          Partial Prerender
-◐ /posts/5             Partial Prerender
-○ /posts/client        Static
+◐ /posts/[id]/edit     Partial Prerender
+◐ /posts/client        Partial Prerender
 ◐ /todos               Partial Prerender
 ƒ /api/posts           Dynamic
 ƒ /api/todos           Dynamic
 ```
+
+인증을 붙이기 전에는 `/`, `/posts`, `/posts/client` 가 `○ Static` 이었다. 헤더에서 세션을 읽기 시작하면서 전부 `◐` 가 됐지만, 세션 부분만 Suspense 안에 있으므로 나머지는 여전히 정적 셸로 즉시 나간다.
 
 | 기호 | 의미 |
 | --- | --- |
@@ -314,15 +394,21 @@ npx shadcn@latest add <component>   # 예: npx shadcn@latest add table
 ## 구조
 
 ```
-.env.example        # 환경변수 템플릿 (복사해서 .env 로 사용)
+.env.example        # 환경변수 템플릿 (DATABASE_PATH, SESSION_SECRET)
 next.config.ts      # cacheComponents: true
 data/               # SQLite 파일 위치 (git 제외)
 scripts/
   init-db.mts       # DB 파일 / 테이블 생성
   seed-db.mts       # 샘플 데이터 삽입
 src/
+  proxy.ts          # 요청 전 낙관적 리다이렉트 (인증 보조)
   app/
-    layout.tsx      # 루트 레이아웃 (폰트, 전역 CSS, 토스트)
+    layout.tsx      # 루트 레이아웃 (헤더 + Suspense 안의 로그인 상태)
+    (auth)/         # 라우트 그룹 (URL 에 안 들어감)
+      layout.tsx    # 로그인/가입 공용 레이아웃
+      actions.ts    # 가입 / 로그인 / 로그아웃 Server Actions
+      auth-form.tsx # 공용 폼
+      login/, signup/
     page.tsx        # 홈 (SSG)
     globals.css     # Tailwind + shadcn 테마 변수
     todos/
@@ -333,7 +419,8 @@ src/
     posts/
       layout.tsx    # /posts 공통 네비게이션
       page.tsx      # 목록 (use cache, ISR)
-      actions.ts    # 작성(Zod 검증) / 삭제 / updateTag / revalidateTag
+      actions.ts    # 작성 / 수정 / 삭제 / 댓글 (모두 세션 검사) / 캐시 갱신
+      post-form.tsx # 작성·수정 공용 폼
       error.tsx     # Error Boundary
       cache-controls.tsx, new-post-form.tsx
       [id]/
@@ -341,6 +428,10 @@ src/
         loading.tsx       # 로딩 스켈레톤
         not-found.tsx     # notFound() 결과
         other-posts.tsx   # 1.5초 지연 스트리밍
+        post-owner-actions.tsx  # 작성자에게만 수정/삭제 (Suspense 안)
+        comments-section.tsx    # 2단 댓글 (캐시된 목록 + 현재 사용자)
+        comment-form.tsx, reply-toggle.tsx, delete-comment-button.tsx
+        edit/page.tsx     # 글 수정 (작성자만)
         error-trigger.tsx, delete-post-button.tsx
       client/
         layout.tsx        # TanStack Query Provider 적용 범위
@@ -352,9 +443,17 @@ src/
     api/
       todos/route.ts  # REST API 예시
       posts/route.ts  # 검색 API (?q=)
-  components/ui/    # shadcn/ui 컴포넌트
+  components/
+    ui/             # shadcn/ui 컴포넌트
+    user-menu.tsx   # 헤더 로그인 상태 (서버 컴포넌트)
   lib/
-    schemas/post.ts # Zod 검증 스키마 (posts 폼)
+    schema.ts       # 테이블 정의 + 수동 마이그레이션 (앱과 스크립트가 공유)
+    schemas/        # Zod 검증 스키마 (post, auth, comment)
+    password.ts     # scrypt 해시 / 검증
+    session.ts      # JWT 세션 쿠키 생성 / 검증 / 삭제
+    dal.ts          # getCurrentUser(), requireUser()
+    users.ts        # users 접근 함수
+    comments.ts     # comments 접근 함수 (2단 트리, 태그별 캐시)
     db.ts           # SQLite 연결 (앱 전체에서 하나 공유)
     todos.ts        # todos 접근 함수 (connection() 으로 SSR)
     posts.ts        # posts 접근 함수 (일부 "use cache")
