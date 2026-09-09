@@ -66,7 +66,7 @@ const SEED_POSTS: { title: string; content: string; author: number }[] = [
     title: "클라이언트 사이드 데이터 페칭",
     author: 0,
     content:
-      "서버 컴포넌트가 아니라 브라우저에서 fetch 로 데이터를 가져오는 방식. /posts/client 에서 SWR, TanStack Query, useEffect+fetch 세 가지를 비교해 볼 수 있다.",
+      "서버 컴포넌트가 아니라 브라우저에서 fetch 로 데이터를 가져오는 방식. /client-fetch 에서 SWR, TanStack Query, useEffect+fetch 세 가지를 비교해 볼 수 있다.",
   },
   {
     title: "인증과 권한: 이 글은 게스트가 썼습니다",

@@ -1,4 +1,4 @@
-// /posts/client 클라이언트 사이드 데이터 페칭 데모.
+// /client-fetch 클라이언트 사이드 데이터 페칭 데모.
 // 이 페이지(서버 컴포넌트)는 데이터를 전혀 읽지 않아 완전히 정적으로 미리 렌더링되고,
 // 데이터는 브라우저에서 hydration 이후 /api/posts 를 호출해 가져온다.
 import type { Metadata } from "next";

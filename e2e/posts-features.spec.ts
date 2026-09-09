@@ -91,14 +91,14 @@ test("next/dynamic: 최근 본 글 위젯은 브라우저에서만 로드되어 
 });
 
 test("외부 API + use(): 릴리스 페이지가 스트리밍으로 채워진다 (API 실패 시 error.tsx)", async ({ page }) => {
-  await page.goto("/posts/releases");
+  await page.goto("/releases");
   await expect(page.getByRole("heading", { name: "Next.js 최신 릴리스" })).toBeVisible();
   // 네트워크 상황에 따라 목록 또는 에러 UI 중 하나가 온다. 둘 중 하나는 반드시 렌더링되어야 한다.
   await expect(page.getByText(/캐시 생성:|문제가 발생했습니다/)).toBeVisible({ timeout: 15000 });
 });
 
 test("무한 스크롤: 끝에 닿으면 다음 글을 불러오고, 다 읽으면 안내가 뜬다", async ({ page }) => {
-  await page.goto("/posts/feed");
+  await page.goto("/feed");
   const links = page.locator("ul a[href^='/posts/']");
   await expect(links).toHaveCount(5); // 서버가 렌더링한 첫 페이지 (시드 6개 중 5개)
 

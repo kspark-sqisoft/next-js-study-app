@@ -53,9 +53,9 @@ npm run db:seed -- --reset   # 샘플 데이터로 초기화
 
 | 방식 | 언제 | 어디서 | 장점 | 단점 | 이 프로젝트 |
 | --- | --- | --- | --- | --- | --- |
-| **SSG** (Static Site Generation) | 빌드 시 1회 | 서버(빌드 머신) | 가장 빠름. CDN 에 그대로 올릴 수 있음 | 데이터가 바뀌면 다시 빌드해야 함 | `/`, `/posts/client` |
+| **SSG** (Static Site Generation) | 빌드 시 1회 | 서버(빌드 머신) | 가장 빠름. CDN 에 그대로 올릴 수 있음 | 데이터가 바뀌면 다시 빌드해야 함 | `/`, `/client-fetch` |
 | **SSR** (Server-Side Rendering) | 요청마다 | 서버 | 항상 최신 데이터. 첫 화면에 내용이 있어 SEO 유리 | 요청마다 서버 부하. 응답까지 기다려야 함 | `/todos`, `/api/*` |
-| **CSR** (Client-Side Rendering) | 브라우저에서 JS 실행 후 | 브라우저 | 상호작용이 풍부. 서버 부담 적음 | 첫 화면이 비어 있음(로딩). SEO 불리 | `/posts/client` 의 검색 결과, `"use client"` 컴포넌트의 상호작용 |
+| **CSR** (Client-Side Rendering) | 브라우저에서 JS 실행 후 | 브라우저 | 상호작용이 풍부. 서버 부담 적음 | 첫 화면이 비어 있음(로딩). SEO 불리 | `/client-fetch` 의 검색 결과, `"use client"` 컴포넌트의 상호작용 |
 | **ISR** (Incremental Static Regeneration) | 빌드 시 1회 + 주기/이벤트로 재생성 | 서버 | SSG 의 속도 + 데이터 갱신 가능 | 갱신 직후 잠깐 이전 데이터가 보일 수 있음 | `/posts` 목록, `/posts/[id]` 상세 |
 
 ### SSG — 미리 만들어 두기
@@ -71,7 +71,7 @@ App Router 에서는 **요청별 데이터를 안 쓰면 자동으로 SSG** 가 
 ### CSR — 브라우저에서 만들기
 
 서버는 거의 빈 HTML 과 JS 만 주고, 브라우저가 JS 를 실행해 API 를 호출하고 화면을 그린다. 예전 SPA(React 만 쓰던 시절) 의 기본 방식이다.
-App Router 에서 순수 CSR 은 드물다. `/posts/client` 가 가장 가깝다: 페이지 뼈대는 SSG 로 미리 만들어지고, **검색 결과만** 브라우저에서 `/api/posts` 를 호출해 그린다.
+App Router 에서 순수 CSR 은 드물다. `/client-fetch` 가 가장 가깝다: 페이지 뼈대는 SSG 로 미리 만들어지고, **검색 결과만** 브라우저에서 `/api/posts` 를 호출해 그린다.
 
 또 하나 중요한 점: `"use client"` 컴포넌트도 **서버에서 먼저 HTML 로 렌더링된다.** 브라우저에서는 그 HTML 위에 JS 가 붙어 살아나는데(hydration), 이때부터 클릭·입력 같은 상호작용이 동작한다. 즉 App Router 의 한 페이지 안에는 SSR/SSG 로 만든 HTML 과 CSR 로 동작하는 상호작용이 섞여 있다.
 
@@ -122,7 +122,7 @@ Next.js 16 에서는 ISR 을 별도 설정이 아니라 `"use cache"` + `cacheLi
 | 9 | 동적 라우트 `[id]`, `generateStaticParams` | `src/app/posts/[id]/page.tsx` |
 | 10 | 특수 파일: `loading`, `error`, `not-found` | `src/app/posts/[id]/`, `src/app/posts/error.tsx` |
 | 11 | Suspense 스트리밍 | `src/app/posts/[id]/other-posts.tsx` |
-| 12 | 클라이언트 사이드 페칭: fetch, SWR, TanStack Query | `src/app/posts/client/` |
+| 12 | 클라이언트 사이드 페칭: fetch, SWR, TanStack Query | `src/app/(demos)/client-fetch/` |
 | 13 | 폼 검증: 손 검증 vs Zod 스키마 | `src/app/todos/actions.ts` vs `src/lib/schemas/post.ts` |
 | 14 | 인증: 회원 가입, 로그인, 세션 쿠키(JWT) | `src/lib/password.ts`, `src/lib/session.ts`, `src/app/(auth)/` |
 | 15 | 인가: DAL, 작성자만 수정/삭제, proxy | `src/lib/dal.ts`, `src/app/posts/actions.ts`, `src/proxy.ts` |
@@ -130,10 +130,13 @@ Next.js 16 에서는 ISR 을 별도 설정이 아니라 `"use cache"` + `cacheLi
 | 17 | 2단 댓글: 트리 조립, CASCADE, 태그별 캐시 | `src/lib/comments.ts`, `src/app/posts/[id]/comments-section.tsx` |
 | 18 | 테스트: 단위 · 컴포넌트 · Route Handler · E2E | `src/**/*.test.ts(x)`, `e2e/`, Part 4 |
 | 19 | `searchParams`: URL 로 검색·페이지네이션 상태 관리 | `src/app/posts/page.tsx`, `getPostsPage` |
-| 20 | 외부 API `fetch` 캐시 + `use()` 로 Promise 넘기기 | `src/lib/github.ts`, `src/app/posts/releases/` |
+| 20 | 외부 API `fetch` 캐시 + `use()` 로 Promise 넘기기 | `src/lib/github.ts`, `src/app/(demos)/releases/` |
 | 21 | 이미지 업로드, 파일 응답 Route Handler, `next/image` | `src/lib/uploads.ts`, `src/app/api/uploads/[name]/route.ts` |
 | 22 | `next/dynamic` (`ssr: false`) 로 브라우저 전용 컴포넌트 지연 로딩 | `src/app/posts/[id]/recently-viewed*.tsx` |
-| 23 | 무한 스크롤: 커서 페이지네이션 + `useInfiniteQuery` + IntersectionObserver | `src/app/posts/feed/`, `getPostsByCursor` |
+| 23 | 무한 스크롤: 커서 페이지네이션 + `useInfiniteQuery` + IntersectionObserver | `src/app/(demos)/feed/`, `getPostsByCursor` |
+| 24 | 병렬 라우트 + 인터셉팅 라우트로 모달 | `src/app/posts/@modal/`, `src/components/modal.tsx` |
+| 25 | `template.tsx` 와 layout 의 차이 | `src/app/(demos)/template.tsx` |
+| 26 | 리다이렉트: `redirects` 설정, `redirect()`, `permanentRedirect()` | `next.config.ts`, `src/app/p/[id]/page.tsx` |
 
 이후에 볼 항목은 [docs/NEXT_STEPS.md](docs/NEXT_STEPS.md) 에 정리해 두었다.
 
@@ -249,7 +252,7 @@ Next.js 16 의 캐싱 규칙은 단순하다.
 
 curl 로 보면 첫 바이트(TTFB) 는 수 ms, 전체 완료는 1.5초다. 서버가 HTML 을 조각내어 순서대로 보내는 것이 스트리밍이다.
 
-### 2-7. 클라이언트 사이드 페칭 (`src/app/posts/client/`)
+### 2-7. 클라이언트 사이드 페칭 (`src/app/(demos)/client-fetch/`)
 
 서버 컴포넌트가 아니라 브라우저에서 `/api/posts` 를 호출한다. 검색처럼 사용자 입력에 따라 계속 바뀌는 데이터에 적합하다. 같은 검색 기능을 세 가지로 구현해 비교한다.
 
@@ -257,11 +260,11 @@ curl 로 보면 첫 바이트(TTFB) 는 수 ms, 전체 완료는 1.5초다. 서�
 | --- | --- | --- |
 | `post-count.tsx` | `useEffect` + `fetch` | 라이브러리 없음. 로딩/에러/취소(`AbortController`) 를 직접 처리해야 한다 |
 | `post-search.tsx` | SWR `useSWR(key, fetcher)` | 키(URL) 기반 캐시, 중복 요청 제거, 포커스 시 자동 갱신. 작고 단순 |
-| `post-search-query.tsx` | TanStack Query `useQuery({ queryKey, queryFn })` | 배열 쿼리 키, 풍부한 옵션, DevTools. `providers.tsx` 의 `QueryClientProvider` 가 필요 |
+| `post-search-query.tsx` | TanStack Query `useQuery({ queryKey, queryFn })` | 배열 쿼리 키, 풍부한 옵션, DevTools. `src/components/query-providers.tsx` 의 `QueryClientProvider` 가 필요 |
 
 SWR 과 TanStack Query 는 같은 문제를 푸는 경쟁 라이브러리다. Next.js 의 `"use cache"` 가 **서버 캐시** 라면 이들은 **브라우저 캐시** 로, 층위가 달라 대체 관계가 아니다.
 
-`QueryClientProvider` 는 `src/app/posts/layout.tsx` 에서 `/posts` 세그먼트에만 적용했다. 앱 전체(root layout)에 두지 않은 것은 필요한 범위에만 두기 위해서다.
+`QueryClientProvider` 는 `src/app/(demos)/layout.tsx` 에서 데모 페이지 그룹에만 적용했다. 앱 전체(root layout)에 두지 않은 것은 필요한 범위에만 두기 위해서다.
 
 ### 2-8. 폼 검증: 손 검증 vs Zod
 
@@ -297,7 +300,7 @@ Zod 쪽 핵심 코드 흐름 (`createPostAction`):
 - 검색 폼은 `<form method="get">`. JS 없이도 브라우저가 `?q=` 로 이동시켜 준다. 페이지 링크는 `<Link href="/posts?q=...&page=2">`.
 - 잘못된 값(`page=abc`, `page=999`)은 서버에서 보정한다. URL 은 사용자 입력이다.
 
-### 2-10. 외부 API `fetch` 와 `use()` (`src/lib/github.ts`, `/posts/releases`)
+### 2-10. 외부 API `fetch` 와 `use()` (`src/lib/github.ts`, `/releases`)
 
 GitHub API 에서 Next.js 릴리스 목록을 가져온다. 두 가지를 배운다.
 
@@ -321,7 +324,7 @@ GitHub API 에서 Next.js 릴리스 목록을 가져온다. 두 가지를 배운
 - `ssr: false` 는 **클라이언트 컴포넌트 안에서만** 쓸 수 있다. 그래서 `recently-viewed-loader.tsx` 라는 얇은 `"use client"` 래퍼를 두고 서버 컴포넌트(`page.tsx`)는 그 래퍼를 쓴다.
 - 언제 쓰나: `window` 에 의존하는 라이브러리(차트, 에디터, 지도), 처음엔 안 보이는 무거운 UI(모달). 그 외에는 서버 컴포넌트가 이미 자동으로 코드 분할하므로 불필요하다.
 
-### 2-13. 무한 스크롤 (`/posts/feed`)
+### 2-13. 무한 스크롤 (`/feed`)
 
 `/posts` 의 번호 페이지네이션과 같은 데이터를 다른 UX 로 보여 준다. 세 가지 조각으로 이루어진다.
 
@@ -329,7 +332,7 @@ GitHub API 에서 Next.js 릴리스 목록을 가져온다. 두 가지를 배운
 | --- | --- | --- |
 | 커서 조회 | `src/lib/posts.ts` 의 `getPostsByCursor` | "마지막으로 본 id 보다 작은 것 N개". `limit+1` 개를 읽어 다음 페이지 유무를 판단 |
 | API | `src/app/api/posts/route.ts` (`?cursor=&limit=`) | `{ posts, nextCursor }` 를 돌려준다. `nextCursor` 가 `null` 이면 끝 |
-| 클라이언트 | `src/app/posts/feed/post-feed.tsx` | `useInfiniteQuery` 로 페이지를 쌓고, `IntersectionObserver` 로 끝을 감지 |
+| 클라이언트 | `src/app/feed/post-feed.tsx` | `useInfiniteQuery` 로 페이지를 쌓고, `IntersectionObserver` 로 끝을 감지 |
 
 **offset 과 cursor 의 차이**: `/posts` 는 `OFFSET (page-1)*5` 로 건너뛰는 방식이라 스크롤 중에 새 글이 추가되면 항목이 밀려 중복이나 누락이 생길 수 있다. 커서 방식은 `id < 마지막 id` 조건이라 그런 문제가 없고, 큰 offset 을 세지 않아 뒤 페이지도 빠르다. 대신 "3페이지로 바로 가기" 는 못 한다.
 
@@ -337,9 +340,56 @@ GitHub API 에서 Next.js 릴리스 목록을 가져온다. 두 가지를 배운
 
 **끝 감지**: 목록 아래에 빈 `div`(sentinel) 를 두고 `IntersectionObserver` 로 화면에 들어오는지 본다. `rootMargin: "200px"` 로 끝에 닿기 전에 미리 요청해 끊김을 줄인다. 화면이 커서 스크롤이 안 생기는 경우를 위해 "더 보기" 버튼도 둔다.
 
-**Cache Components 와의 충돌 한 가지**: TanStack Query 는 내부에서 `Date.now()` 를 쓰는데, 빌드 프리렌더 중에 이런 값이 정적 셸에 굳는 것을 Next.js 가 에러로 막는다 (`Route "/posts/feed": Next.js encountered the unstable value Date.now() in a Client Component`). 문서의 처방은 클라이언트 컴포넌트 첫 줄에서 `use(io())` 를 호출하는 것이다. 프리렌더 중에는 suspend 해서 부모 `<Suspense>` 의 fallback 이 셸에 들어가고, 실제 요청과 브라우저에서는 즉시 통과한다. 그래서 `page.tsx` 는 같은 첫 페이지를 정적 `StaticList` 로 fallback 에 그려 두어, 셸에도 목록이 보이게 했다.
+**Cache Components 와의 충돌 한 가지**: TanStack Query 는 내부에서 `Date.now()` 를 쓰는데, 빌드 프리렌더 중에 이런 값이 정적 셸에 굳는 것을 Next.js 가 에러로 막는다 (`Route "/feed": Next.js encountered the unstable value Date.now() in a Client Component`). 문서의 처방은 클라이언트 컴포넌트 첫 줄에서 `use(io())` 를 호출하는 것이다. 프리렌더 중에는 suspend 해서 부모 `<Suspense>` 의 fallback 이 셸에 들어가고, 실제 요청과 브라우저에서는 즉시 통과한다. 그래서 `page.tsx` 는 같은 첫 페이지를 정적 `StaticList` 로 fallback 에 그려 두어, 셸에도 목록이 보이게 했다.
 
-TanStack Query 의 `QueryClientProvider` 는 이 페이지와 `/posts/client` 가 함께 쓰므로 `src/app/posts/layout.tsx` 로 올렸다.
+TanStack Query 의 `QueryClientProvider` 는 이 페이지와 `/client-fetch` 가 함께 쓰므로 두 페이지가 속한 `(demos)` 그룹의 레이아웃(`src/app/(demos)/layout.tsx`)에 둔다.
+
+### 2-14. 병렬 라우트 + 인터셉팅 라우트: 목록 위의 모달 (`src/app/posts/@modal/`)
+
+목록에서 글을 클릭하면 **모달** 로 열리고, 그 상태에서 새로고침하거나 주소를 공유하면 **전체 페이지** 가 되는 패턴. App Router 고유 기능 두 개를 조합한다.
+
+| 개념 | 폴더 | 역할 |
+| --- | --- | --- |
+| 병렬 라우트 (슬롯) | `posts/@modal/` | `@폴더` 는 URL 에 안 들어가고, `layout.tsx` 에 `modal` prop 으로 전달된다. `children` 과 나란히 렌더링 |
+| 인터셉팅 라우트 | `posts/@modal/(.)[id]/page.tsx` | `(.)` = 같은 레벨. 클라이언트 이동으로 `/posts/3` 에 갈 때 진짜 `posts/[id]` 대신 이 파일이 슬롯에 렌더링된다 |
+| 슬롯 기본값 | `posts/@modal/default.tsx` | 인터셉트 대상이 아닐 때(`/posts`, 새로고침) `null`. 없으면 404 |
+
+동작 흐름:
+1. `/posts` 에서 `<Link href="/posts/3">` 클릭 → 클라이언트 이동 → 인터셉트 → `@modal` 슬롯에 모달, URL 은 `/posts/3`, 뒤의 목록은 그대로.
+2. 닫기(ESC, 바깥 클릭, X) → `router.back()` → URL 이 `/posts` 로 돌아가며 슬롯이 `default`(null) 로 바뀐다. 브라우저 뒤로/앞으로 버튼과도 맞물린다.
+3. `/posts/3` 에서 새로고침 → 하드 내비게이션 → 인터셉트 없음 → 원래 `posts/[id]/page.tsx`(댓글, 수정 버튼 포함).
+4. 모달 안의 "전체 페이지로 보기" 는 일부러 `<a>` 를 써서 하드 내비게이션으로 원래 페이지를 연다.
+5. 모달이 열리면 뒤의 목록은 접근성 트리에서 숨겨진다(`inert`). 화면에는 보이지만 스크린리더와 `getByRole` 은 무시한다. 테스트에서 CSS 셀렉터로 찾는 이유다.
+
+`@modal` 은 슬롯이라 세그먼트로 세지 않으므로 `posts/@modal/(.)[id]` 가 `posts/[id]` 를 가리킨다. 파일 시스템 깊이가 아니라 "라우트 세그먼트" 기준이다.
+
+**직접 부딪힌 함정**: 인터셉터 `(.)[id]` 는 클라이언트 이동으로 `/posts/<무엇이든>` 에 가면 전부 가로챈다. 원래 `/posts/feed`, `/posts/client`, `/posts/releases` 에 있던 정적 페이지들이 `[id]="feed"` 로 잡혀 "글을 찾을 수 없습니다" 모달이 떠 버렸다 (E2E 가 잡아냈다). 서버 라우팅에서는 정적 라우트가 동적보다 우선하지만, 인터셉트 판단은 URL 패턴으로 이루어지기 때문이다. 해결은 구조 변경: 그 페이지들을 `src/app/(demos)/` 라우트 그룹으로 옮겨 `/feed`, `/client-fetch`, `/releases` 로 만들고, 옛 URL 은 `next.config.ts` 의 `redirects` 로 308 리다이렉트했다. **동적 세그먼트를 인터셉트하는 슬롯 옆에는 정적 형제 라우트를 두지 말 것.** `e2e/routing.spec.ts` 의 마지막 테스트가 이 회귀를 감시한다.
+
+### 2-15. `template.tsx` (`src/app/(demos)/template.tsx`)
+
+`layout.tsx` 와 같은 자리에서 페이지를 감싸지만, **그 레벨의 세그먼트가 바뀔 때마다 새로 마운트** 된다. `(demos)` 그룹의 layout 은 `/releases` → `/feed` 로 옮겨도 그대로 유지되어 네비게이션이 깜빡이지 않는 반면, template 은 자식 세그먼트(releases → feed)가 바뀌었으므로 새 key 로 만들어진다. 깊은 세그먼트만 바뀌는 이동(예: `/posts` → `/posts/3/edit` 에서 `posts` 레벨 template)은 상위 template 을 재마운트하지 않는다.
+
+- 그래서 template 의 진입 애니메이션(`animate-in fade-in`)은 이동할 때마다 재생되고, 그 안의 클라이언트 state 와 `useEffect` 는 초기화된다.
+- 렌더링 순서: `layout > template > error > loading > not-found > page`.
+- template 은 `children` 뿐 아니라 같은 레벨의 **슬롯(`@modal` 등)도 각각** 감싼다. 슬롯이 있는 레이아웃에 template 을 두면 같은 template 이 여러 개 렌더링된다.
+- 쓰는 곳: 페이지 진입 효과, 이동마다 리셋돼야 하는 입력 상태, 이동마다 다시 실행해야 하는 효과(페이지뷰 로깅). 대부분의 경우에는 layout 이 맞다.
+- E2E(`e2e/routing.spec.ts`)는 DOM 노드에 표식을 남긴 뒤 이동해서, 새 노드로 바뀌었는지로 재마운트를 확인한다.
+- 여기서 Cache Components 의 특성 하나가 드러난다: 이동한 뒤에도 **이전 라우트의 DOM 이 `<Activity mode="hidden">` 으로 숨겨진 채 남아 있다** (뒤로 가기 때 상태 그대로 복원하기 위해). 그래서 표식이 남은 옛 template 노드가 숨겨진 채 존재하고, 화면에 보이는 것은 새로 마운트된 노드다. 테스트에서 "보이는 노드" 를 골라야 하는 이유다.
+
+### 2-16. 리다이렉트 (`next.config.ts`, `src/app/p/[id]/page.tsx`)
+
+| 방법 | 어디서 | 상태 코드 | 이 프로젝트 |
+| --- | --- | --- | --- |
+| `redirects()` in `next.config.ts` | 경로 패턴만으로 정해질 때. 라우트보다 먼저 검사 | 308(`permanent: true`) / 307 | `/blog/:id` → `/posts/:id`, `/articles` → `/posts`, 옮긴 데모 페이지 `/posts/feed` → `/feed` 등, 임시 `/latest` → `/feed` |
+| `redirect()` | 서버 컴포넌트, Server Action, Route Handler. 조건이 코드에 있을 때 | 307 (Server Action 에서는 303) | 글 작성 후 상세로, 로그인 필요 시 `/login` 으로 |
+| `permanentRedirect()` | 위와 같되 "영구" 로 알릴 때 (URL 체계 변경 등) | 308 | `/p/3` → `/posts/3` (DB 확인 후) |
+| `NextResponse.redirect` in `proxy.ts` | 요청 전 단계, 쿠키/헤더 조건 | 임의 | 비로그인 → `/login` |
+| `router.push()` | 클라이언트 이벤트 핸들러 | 없음 (클라이언트 이동) | 모달 닫기의 `router.back()` |
+
+- 307/308 의 차이: 브라우저와 검색엔진이 308 은 영구 기억한다. 되돌릴 가능성이 있으면 307.
+- `redirects` 는 쿼리스트링을 목적지로 그대로 넘긴다 (`/articles?page=2` → `/posts?page=2`).
+- `redirect()`/`permanentRedirect()` 는 **예외를 던지는** 방식이라 그 아래 코드는 실행되지 않고, `try/catch` 로 감싸면 삼켜진다.
+- **상태 코드가 진짜로 나가려면 스트리밍 전에 리다이렉트해야 한다.** `<Suspense>` 안에서 리다이렉트하면 이미 정적 셸(200)이 전송된 뒤라서 HTTP 308 이 아니라 스트림 속 "클라이언트 리다이렉트 지시" 가 된다. 브라우저는 이동하지만 curl 이나 검색엔진은 200 을 본다. 그래서 `src/app/p/[id]/page.tsx` 는 일부러 Suspense 없이 페이지 최상위에서 `params` 를 읽고 리다이렉트한다. 정적 셸을 포기하는 대신 실제 308/404 를 얻는다. 글 수정 페이지의 "남의 글 → 상세로" 는 반대로 Suspense 안이라 200 + 클라이언트 리다이렉트다. 둘의 차이를 `curl -I` 로 비교해 보자.
 
 ---
 
@@ -462,6 +512,7 @@ TanStack Query 의 `QueryClientProvider` 는 이 페이지와 `/posts/client` �
 | 파일 | 내용 |
 | --- | --- |
 | `e2e/rendering.spec.ts` | 캐시 시각이 새로고침 후에도 같은지(ISR), updateTag 로 바뀌는지, 스트리밍 영역이 나중에 채워지는지, not-found / error.tsx, SWR 검색이 API 를 호출하는지 |
+| `e2e/routing.spec.ts` | 모달 열기/닫기/새로고침, template 재마운트, 리다이렉트 상태 코드 |
 | `e2e/auth-posts-comments.spec.ts` | 가입(검증 실패→성공) → 글 작성/수정 → 댓글/답글 → 게스트로 권한 확인 → 로그인 실패/로그아웃 → 글 삭제. `test.describe.serial` 로 순서를 보장한다 |
 
 브라우저는 시스템에 설치된 Chrome 을 쓴다 (`channel: "chrome"`). 없으면 `npx playwright install chromium` 을 실행하고 설정에서 `channel` 줄을 지운다.
@@ -493,9 +544,9 @@ npx playwright show-trace test-results/<폴더>/trace.zip   # 실패한 테스�
 ◐ /posts               Partial Prerender   (목록은 요청 시 q·page 조합별로 "use cache", 1분 재검증)
 ◐ /posts/[id]          Partial Prerender
 ◐ /posts/[id]/edit     Partial Prerender
-◐ /posts/client        Partial Prerender
-◐ /posts/feed          Partial Prerender   (첫 페이지는 셸에, 이후는 브라우저 fetch)
-◐ /posts/releases      Partial Prerender   (Revalidate 1h — 외부 API 캐시)
+◐ /client-fetch        Partial Prerender
+◐ /feed          Partial Prerender   (첫 페이지는 셸에, 이후는 브라우저 fetch)
+◐ /releases      Partial Prerender   (Revalidate 1h — 외부 API 캐시)
 ◐ /todos               Partial Prerender
 ƒ /api/posts           Dynamic
 ƒ /api/todos           Dynamic
@@ -503,7 +554,7 @@ npx playwright show-trace test-results/<폴더>/trace.zip   # 실패한 테스�
 ƒ Proxy (Middleware)                        (src/proxy.ts)
 ```
 
-인증을 붙이기 전에는 `/`, `/posts`, `/posts/client` 가 `○ Static` 이었다. 헤더에서 세션을 읽기 시작하면서 전부 `◐` 가 됐지만, 세션 부분만 Suspense 안에 있으므로 나머지는 여전히 정적 셸로 즉시 나간다.
+인증을 붙이기 전에는 `/`, `/posts`, `/client-fetch` 가 `○ Static` 이었다. 헤더에서 세션을 읽기 시작하면서 전부 `◐` 가 됐지만, 세션 부분만 Suspense 안에 있으므로 나머지는 여전히 정적 셸로 즉시 나간다.
 
 | 기호 | 의미 |
 | --- | --- |
@@ -566,8 +617,17 @@ src/
       loading.tsx   # Suspense 경계
       actions.ts    # Server Actions (추가 / 토글 / 수정 / 삭제)
       *.tsx         # 클라이언트 컴포넌트 (useActionState, useOptimistic, useTransition)
+    (demos)/        # 라우트 그룹 (URL 에 안 들어감). 인터셉팅 라우트와 충돌해 /posts 밖으로 옮긴 데모들
+      layout.tsx    # 공용 네비게이션 + TanStack Query Provider
+      template.tsx  # 세그먼트가 바뀔 때마다 재마운트 (진입 애니메이션)
+      feed/         # /feed 무한 스크롤 (page.tsx: 첫 페이지 서버 렌더링, post-feed.tsx: useInfiniteQuery + IntersectionObserver)
+      client-fetch/ # /client-fetch 클라이언트 페칭 3종 비교 (post-count: fetch, post-search: SWR, post-search-query: TanStack Query)
+      releases/     # /releases 외부 API + use() (page.tsx: Promise 전달, release-list.tsx: use() 로 읽기)
     posts/
-      layout.tsx    # /posts 공통 네비게이션
+      layout.tsx    # 공용 네비게이션 + @modal 슬롯 렌더링
+      @modal/
+        default.tsx       # 슬롯 기본값 (null)
+        (.)[id]/page.tsx  # 인터셉팅 라우트: 글 상세를 모달로
       page.tsx      # 목록 (use cache, ISR)
       actions.ts    # 작성 / 수정 / 삭제 / 댓글 (모두 세션 검사) / 캐시 갱신
       post-form.tsx # 작성·수정 공용 폼
@@ -585,24 +645,16 @@ src/
         recently-viewed.tsx        # localStorage 위젯 (브라우저 전용)
         recently-viewed-loader.tsx # next/dynamic ssr:false 래퍼
         error-trigger.tsx, delete-post-button.tsx
-      providers.tsx     # TanStack Query Provider (/posts 전체)
-      feed/
-        page.tsx          # 무한 스크롤 (첫 페이지 서버 렌더링)
-        post-feed.tsx     # useInfiniteQuery + IntersectionObserver
-      releases/
-        page.tsx          # 외부 API 를 Promise 로 넘기는 서버 컴포넌트
-        release-list.tsx  # use() 로 읽는 클라이언트 컴포넌트
-      client/
-        page.tsx          # 세 방식 비교 페이지
-        post-count.tsx    # useEffect + fetch
-        post-search.tsx   # SWR
-        post-search-query.tsx  # TanStack Query
+    p/[id]/page.tsx # permanentRedirect 예 (/p/3 → /posts/3)
     api/
       todos/route.ts  # REST API 예시
       posts/route.ts  # 검색 API (?q=) / 커서 페이지 API (?cursor=&limit=)
       uploads/[name]/route.ts  # 업로드 이미지 파일 응답
   components/
     ui/             # shadcn/ui 컴포넌트
+    modal.tsx       # 라우트 모달 껍데기 (router.back 으로 닫기)
+    posts-nav.tsx   # /posts 와 (demos) 가 공유하는 네비게이션
+    query-providers.tsx  # QueryClientProvider + DevTools
     user-menu.tsx   # 헤더 로그인 상태 (서버 컴포넌트)
   lib/
     schema.ts       # 테이블 정의 + 수동 마이그레이션 (앱과 스크립트가 공유)

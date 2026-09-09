@@ -46,7 +46,7 @@ test("error.tsx: 렌더 중 에러를 잡고 다시 시도로 복구한다", asy
 });
 
 test("클라이언트 사이드 페칭: SWR 검색이 /api/posts 를 호출한다", async ({ page }) => {
-  await page.goto("/posts/client");
+  await page.goto("/client-fetch");
   const swrSection = page.locator("section", { hasText: "1. SWR" });
   const apiCall = page.waitForResponse((r) => r.url().includes("/api/posts?q=") && r.status() === 200);
   await swrSection.getByPlaceholder("제목이나 내용으로 검색").fill("스트리밍");

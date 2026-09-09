@@ -1,4 +1,4 @@
-// /posts/releases 외부 API 데이터를 서버에서 가져와 Promise 째로 클라이언트에 넘기는 예 (use() 패턴).
+// /releases 외부 API 데이터를 서버에서 가져와 Promise 째로 클라이언트에 넘기는 예 (use() 패턴).
 //
 // 1. 서버 컴포넌트가 getNextReleases() 를 "await 하지 않고" 호출해 Promise 만 만든다.
 // 2. Promise 를 <Suspense> 안의 클라이언트 컴포넌트에 props 로 넘긴다.

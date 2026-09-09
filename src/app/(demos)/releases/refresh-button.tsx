@@ -4,7 +4,7 @@
 import { useTransition } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { refreshReleasesAction } from "../actions";
+import { refreshReleasesAction } from "@/app/posts/actions";
 
 export function RefreshReleasesButton() {
   const [isPending, startTransition] = useTransition();

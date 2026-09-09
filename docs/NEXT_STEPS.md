@@ -5,11 +5,8 @@ README 의 학습 순서(1~22단계)를 마친 뒤 이어서 볼 만한 주제�
 
 ## 라우팅
 
-- **병렬 라우트 · 인터셉팅 라우트** (`@slot`, `(.)` 폴더)
-  목록에서 글을 클릭하면 모달로 열리고, 새로고침하면 전체 페이지가 되는 패턴. App Router 고유 기능.
-  → `/posts` 목록에서 글 상세를 모달로 여는 `@modal/(.)posts/[id]` 구성.
-- **`template.tsx`** — layout 과 달리 이동할 때마다 다시 마운트된다. 페이지 진입 애니메이션 등.
-- **`redirect()` / `permanentRedirect()` 와 `next.config` 의 `redirects`** — 옛 URL 을 새 URL 로.
+- **`useSelectedLayoutSegment(s)`** — 현재 활성 세그먼트를 읽어 네비게이션 활성 표시. `/posts` 레이아웃의 링크에 적용해 보기.
+- **catch-all 세그먼트** (`[...slug]`, `[[...slug]]`) — 문서 사이트 같은 계층 URL.
 
 ## 에러 처리와 인가 UI
 

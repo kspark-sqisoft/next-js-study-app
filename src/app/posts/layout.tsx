@@ -1,34 +1,17 @@
-// /posts 아래 모든 페이지가 공유하는 중첩 레이아웃.
-// 페이지를 이동해도 이 부분은 다시 렌더링되지 않고 유지된다.
-// TanStack Query Provider 도 여기서 적용한다 (/posts/client 와 /posts/feed 가 함께 쓴다).
-import Link from "next/link";
-import { Separator } from "@/components/ui/separator";
-import { QueryProviders } from "./providers";
+// /posts 와 /posts/[id] 가 공유하는 레이아웃. modal 은 병렬 라우트 슬롯(@modal 폴더).
+//
+// 왜 무한 스크롤/클라이언트 검색/외부 API 페이지는 여기(/posts/*) 에 없나?
+// 인터셉팅 라우트 @modal/(.)[id] 는 "클라이언트 이동으로 /posts/<무엇이든>" 에 가면 전부 가로챈다.
+// /posts/feed 같은 정적 형제 라우트도 [id]="feed" 로 잡혀 모달이 떠 버린다 (README 2-14 참고).
+// 그래서 그 페이지들은 src/app/(demos)/ 라우트 그룹으로 옮겨 /feed, /client-fetch, /releases 가 되었다.
+import { PostsNav } from "@/components/posts-nav";
 
-export default function PostsLayout({ children }: LayoutProps<"/posts">) {
+export default function PostsLayout({ children, modal }: LayoutProps<"/posts">) {
   return (
-    <QueryProviders>
-      <div className="mx-auto w-full max-w-2xl p-8">
-        <nav className="flex flex-wrap items-center gap-4 text-sm">
-          <Link href="/" className="text-muted-foreground hover:underline">
-            홈
-          </Link>
-          <Link href="/posts" className="font-medium hover:underline">
-            글 목록
-          </Link>
-          <Link href="/posts/feed" className="font-medium hover:underline">
-            무한 스크롤
-          </Link>
-          <Link href="/posts/client" className="font-medium hover:underline">
-            클라이언트 검색
-          </Link>
-          <Link href="/posts/releases" className="font-medium hover:underline">
-            외부 API
-          </Link>
-        </nav>
-        <Separator className="my-4" />
-        {children}
-      </div>
-    </QueryProviders>
+    <div className="mx-auto w-full max-w-2xl p-8">
+      <PostsNav />
+      {children}
+      {modal}
+    </div>
   );
 }
