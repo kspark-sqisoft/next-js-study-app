@@ -78,6 +78,36 @@ export async function getCommentThreads(postId: number): Promise<CommentThread[]
   return [...threads.values()];
 }
 
+/**
+ * 공개 API(/api/v1/posts/:id/comments) 용 목록. 캐시하지 않고 평탄한 배열로 돌려준다.
+ *
+ * 화면용 getCommentThreads() 는 트리로 조립하지만, API 는 parentId 를 그대로 노출하고
+ * 조립은 클라이언트에 맡긴다. 그래야 페이지네이션이 성립한다
+ * (트리를 자르면 "부모 없는 답글" 이 생겨 버린다).
+ */
+export function listComments(
+  postId: number,
+  limit: number,
+  offset: number,
+): { comments: Comment[]; total: number } {
+  const { total } = db
+    .prepare("SELECT COUNT(*) AS total FROM comments WHERE post_id = ?")
+    .get(postId) as { total: number };
+
+  const rows = db
+    .prepare(
+      `SELECT c.*, u.name AS author_name
+       FROM comments c
+       JOIN users u ON u.id = c.author_id
+       WHERE c.post_id = ?
+       ORDER BY c.id ASC
+       LIMIT ? OFFSET ?`,
+    )
+    .all(postId, limit, offset) as CommentRow[];
+
+  return { comments: rows.map(toComment), total };
+}
+
 export function findComment(id: number): Comment | null {
   const row = db
     .prepare(

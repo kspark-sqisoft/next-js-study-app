@@ -12,6 +12,7 @@ Next.js 16 (App Router) 학습용 프로젝트. SQLite 를 붙인 작은 앱 두
 - SWR, TanStack Query (클라이언트 사이드 페칭 비교용)
 - Zod (폼 검증)
 - jose (세션 JWT 서명). 비밀번호 해시는 Node 내장 crypto.scrypt
+- 공개 REST API `/api/v1` (Bearer 인증, 레이트 리밋, OpenAPI 3.1 명세)
 - Vitest + React Testing Library (단위/컴포넌트 테스트), Playwright (E2E)
 - ESLint
 
@@ -25,6 +26,8 @@ openssl rand -base64 32
 npm run db:seed        # 샘플 데이터 넣기 (계정 2개 포함)
 npm run dev            # http://localhost:3000
 ```
+
+공개 REST API 는 `http://localhost:3000/api/v1` 에 있다 (명세: `/api/v1/openapi.json`). 자세한 내용은 [Part 5](#part-5-공개-api-apiv1--외부-개발자에게-열어-주기).
 
 그 외 명령:
 
@@ -137,6 +140,11 @@ Next.js 16 에서는 ISR 을 별도 설정이 아니라 `"use cache"` + `cacheLi
 | 24 | 병렬 라우트 + 인터셉팅 라우트로 모달 | `src/app/posts/@modal/`, `src/components/modal.tsx` |
 | 25 | `template.tsx` 와 layout 의 차이 | `src/app/(demos)/template.tsx` |
 | 26 | 리다이렉트: `redirects` 설정, `redirect()`, `permanentRedirect()` | `next.config.ts`, `src/app/p/[id]/page.tsx` |
+| 27 | 공개 API 설계: 버전 경로, 응답 봉투, 에러 코드 | `src/lib/api/http.ts`, `src/app/api/v1/`, Part 5 |
+| 28 | Bearer 인증: 액세스 토큰(JWT) vs API 키(해시 저장) | `src/lib/api/auth.ts`, `src/lib/api-keys.ts` |
+| 29 | 레이트 리밋과 CORS | `src/lib/api/rate-limit.ts`, `src/proxy.ts` |
+| 30 | Route Handler 의 캐시 무효화 (`updateTag` 를 못 쓰는 이유) | `src/app/api/v1/posts/route.ts` |
+| 31 | OpenAPI 명세로 API 문서화 | `src/lib/api/openapi.ts`, `/api/v1/openapi.json` |
 
 이후에 볼 항목은 [docs/NEXT_STEPS.md](docs/NEXT_STEPS.md) 에 정리해 두었다.
 
@@ -477,6 +485,8 @@ TanStack Query 의 `QueryClientProvider` 는 이 페이지와 `/client-fetch` �
 | `src/lib/session.ts` | 단위 테스트 + `next/headers` mock | `cookies()` 는 실제 요청이 있어야 동작하므로 가짜로 바꾼다 |
 | `src/lib/posts.ts`, `comments.ts` | 통합 테스트 (임시 SQLite) | SQL 이 실제로 맞는지, CASCADE 가 동작하는지는 진짜 DB 로 봐야 한다 |
 | `src/app/api/posts/route.ts` | 통합 테스트 | Route Handler 는 `(Request) => Response` 함수라 서버 없이 직접 호출할 수 있다 |
+| `src/app/api/v1/**/route.ts` | 통합 테스트 | 같은 이유. 인증·권한·상태 코드를 서버 없이 검증한다 (`src/test/api-request.ts` 헬퍼) |
+| `src/lib/api/rate-limit.ts` | 단위 테스트 | `now` 를 인자로 받게 만들어 두면 시계를 조작하지 않고 창 만료를 테스트할 수 있다 |
 | `post-form.tsx`, `todo-item.tsx` | 컴포넌트 테스트 | 클라이언트 컴포넌트. Server Action 은 props 나 `vi.mock` 으로 가짜를 넣는다 |
 | `page.tsx` (async 서버 컴포넌트), Server Action, `loading/error/not-found`, 스트리밍, 캐시 | **E2E** | 단위 도구로는 실행할 수 없거나, 실제 서버가 있어야 의미가 있다 |
 
@@ -494,6 +504,7 @@ TanStack Query 의 `QueryClientProvider` 는 이 페이지와 `/client-fetch` �
 | --- | --- | --- |
 | `cookies()` 등 요청 API | `vi.mock("next/headers", ...)` 로 메모리 저장소를 흉내 | `src/lib/session.test.ts` |
 | `"use cache"` 안의 `cacheLife`, `cacheTag` | `vi.mock("next/cache", ...)` 로 no-op | `src/lib/posts.test.ts`, `comments.test.ts` |
+| Route Handler 의 `revalidateTag`, `revalidatePath` | 같은 `vi.mock("next/cache", ...)` 에 함께 넣는다 | `src/app/api/v1/**/*.test.ts` |
 | 클라이언트 컴포넌트가 import 한 Server Action | `vi.mock("./actions", ...)` 로 호출 여부만 검사 | `src/app/todos/todo-item.test.tsx` |
 | 액션을 props 로 받는 컴포넌트 | 가짜 액션 함수를 그냥 넘긴다 (mock 불필요) | `src/app/posts/post-form.test.tsx` |
 
@@ -514,6 +525,7 @@ TanStack Query 의 `QueryClientProvider` 는 이 페이지와 `/client-fetch` �
 | `e2e/rendering.spec.ts` | 캐시 시각이 새로고침 후에도 같은지(ISR), updateTag 로 바뀌는지, 스트리밍 영역이 나중에 채워지는지, not-found / error.tsx, SWR 검색이 API 를 호출하는지 |
 | `e2e/routing.spec.ts` | 모달 열기/닫기/새로고침, template 재마운트, 리다이렉트 상태 코드 |
 | `e2e/auth-posts-comments.spec.ts` | 가입(검증 실패→성공) → 글 작성/수정 → 댓글/답글 → 게스트로 권한 확인 → 로그인 실패/로그아웃 → 글 삭제. `test.describe.serial` 로 순서를 보장한다 |
+| `e2e/public-api.spec.ts` | 공개 API: OpenAPI 명세, CORS 프리플라이트, 토큰·API 키 흐름, API 로 쓴 글이 웹 화면에 반영되는지, 세션 쿠키가 거부되는지. 단위 테스트는 proxy 를 거치지 않으므로 이런 것은 E2E 로만 확인된다 |
 
 브라우저는 시스템에 설치된 Chrome 을 쓴다 (`channel: "chrome"`). 없으면 `npx playwright install chromium` 을 실행하고 설정에서 `channel` 줄을 지운다.
 
@@ -531,6 +543,259 @@ npx playwright show-trace test-results/<폴더>/trace.zip   # 실패한 테스�
 - **헤더의 로그아웃도 submit 버튼이다.** `button[type=submit]` 처럼 넓게 잡으면 엉뚱한 버튼을 누른다. `form` 범위를 먼저 좁힌다.
 - **Server Action 은 브라우저에서만 검증할 수 있다.** curl 로 GET 응답을 확인하는 것으로는 폼 제출이 되는지 알 수 없다. 그래서 E2E 가 필요하다.
 - **테스트 DB 는 반드시 분리한다.** 단위 테스트는 임시 파일, E2E 는 `data/e2e.db`.
+
+---
+
+## Part 5. 공개 API (`/api/v1`) — 외부 개발자에게 열어 주기
+
+지금까지의 Route Handler(`/api/todos`, `/api/posts`)는 **이 앱의 화면이 쓰는 내부용**이었다.
+Part 5 는 같은 데이터를 **남이 쓸 수 있는 형태**로 여는 것을 다룬다. 둘의 차이가 이 파트의 핵심이다.
+
+| | 내부용 (`/api/posts`) | 공개용 (`/api/v1/posts`) |
+| --- | --- | --- |
+| 사용자 | 우리 화면의 SWR / TanStack Query | 남의 서버, 남의 앱, curl |
+| 인증 | 필요 없음 (같은 출처) | `Authorization: Bearer` |
+| 응답 모양 | 화면에 맞춰 자유롭게 | 봉투(`data` / `error`) 고정 |
+| 바꿔도 되나 | 언제든 (같이 고치면 됨) | 못 바꾼다. 남의 코드가 깨진다 → `/v1` |
+| 문서 | 주석 | OpenAPI + README |
+
+그래서 기존 `/api/posts`, `/api/todos` 는 **그대로 두고** `/api/v1` 아래에 따로 만들었다.
+버전을 경로에 박아 두면 나중에 응답 모양을 바꿔야 할 때 `/api/v2` 를 새로 열고 둘을 함께 운영할 수 있다.
+
+### 5-1. 빠른 시작
+
+```bash
+# 0. 어떤 엔드포인트가 있는지 (인증 불필요)
+curl localhost:3000/api/v1
+
+# 1. 토큰 발급 (시드 계정)
+TOKEN=$(curl -s -X POST localhost:3000/api/v1/auth/token \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"demo@example.com","password":"password123"}' | jq -r .data.accessToken)
+
+# 2. 내가 누구인지 확인 — 여기서 200 이 나오면 자격증명 전달은 성공이다
+curl localhost:3000/api/v1/auth/me -H "Authorization: Bearer $TOKEN"
+
+# 3. 읽기는 토큰 없이도 된다
+curl 'localhost:3000/api/v1/posts?limit=2'
+
+# 4. 쓰기는 토큰이 필요하다
+curl -X POST localhost:3000/api/v1/posts \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"title":"API 로 쓴 글","content":"본문"}'
+
+# 5. 오래 쓸 자격증명이 필요하면 API 키 (응답의 key 는 이때만 보인다)
+curl -X POST localhost:3000/api/v1/auth/keys \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"name":"내 봇"}'
+```
+
+기계가 읽는 명세는 `GET /api/v1/openapi.json` (OpenAPI 3.1) 에 있다. 그대로 Swagger UI / Postman 에 넣으면 된다.
+
+```bash
+npx @redocly/cli preview-docs http://localhost:3000/api/v1/openapi.json
+```
+
+### 5-2. 엔드포인트
+
+읽기(GET)는 공개, 쓰기는 인증 필요가 기본 규칙이다. 수정·삭제는 **작성자 본인만** 할 수 있다.
+
+| 메서드 | 경로 | 인증 | 설명 |
+| --- | --- | --- | --- |
+| GET | `/api/v1` | — | 진입점. 엔드포인트 목록 |
+| GET | `/api/v1/openapi.json` | — | OpenAPI 3.1 명세 |
+| POST | `/api/v1/auth/register` | — | 가입. 토큰까지 함께 발급 |
+| POST | `/api/v1/auth/token` | — | 로그인 → 액세스 토큰 (1시간) |
+| GET | `/api/v1/auth/me` | 토큰·키 | 토큰 주인 확인 |
+| GET | `/api/v1/auth/keys` | 토큰만 | 내 API 키 목록 |
+| POST | `/api/v1/auth/keys` | 토큰만 | API 키 발급 |
+| DELETE | `/api/v1/auth/keys/:id` | 토큰만 | API 키 폐기 |
+| GET | `/api/v1/posts` | — | 목록. `?q=&limit=&offset=` |
+| POST | `/api/v1/posts` | 필요 | 작성 |
+| GET | `/api/v1/posts/:id` | — | 한 건 |
+| PATCH | `/api/v1/posts/:id` | 작성자 | 부분 수정 |
+| DELETE | `/api/v1/posts/:id` | 작성자 | 삭제 (댓글도 CASCADE) |
+| GET | `/api/v1/posts/:id/comments` | — | 댓글 목록 |
+| POST | `/api/v1/posts/:id/comments` | 필요 | 댓글/답글 (`parentId`) |
+| DELETE | `/api/v1/comments/:id` | 작성자 | 댓글 삭제 |
+| GET | `/api/v1/todos` | — | 목록. `?completed=true` |
+| POST | `/api/v1/todos` | 필요 | 추가 |
+| GET/PATCH/DELETE | `/api/v1/todos/:id` | 조회 외 필요 | 한 건 / 수정 / 삭제 |
+
+`todos` 에는 작성자 컬럼이 없어서(모두가 공유하는 하나의 목록) 소유권 검사가 없고 로그인 여부만 본다.
+`posts` 와 나란히 놓고 보면 **스키마에 소유자가 있느냐가 권한 설계를 어떻게 바꾸는지** 보인다.
+
+### 5-3. 응답 봉투 (`src/lib/api/http.ts`)
+
+외부 API 에서 가장 중요한 건 일관성이다. 어떤 엔드포인트를 부르든 모양이 같아야 클라이언트가 처리를 한 번만 짜면 된다.
+
+```jsonc
+// 단건
+{ "data": { "id": 7, "title": "..." } }
+
+// 목록
+{ "data": [ ... ], "pagination": { "total": 12, "limit": 20, "offset": 0, "hasMore": true } }
+
+// 실패
+{ "error": { "code": "validation_failed", "message": "입력값이 올바르지 않습니다.",
+             "details": { "title": ["제목을 입력하세요."] } } }
+```
+
+`code` 는 **기계가 분기할 고정 문자열**, `message` 는 사람이 읽는 설명이다.
+HTTP 상태 코드만으로는 "왜 400 인지" 를 구분할 수 없어서 둘 다 준다.
+
+| code | 상태 | 언제 |
+| --- | --- | --- |
+| `bad_request` | 400 | JSON 이 깨졌거나 id 가 숫자가 아님 |
+| `unauthorized` | 401 | 토큰이 없거나 유효하지 않음 |
+| `forbidden` | 403 | 남의 글을 수정하려 함 |
+| `not_found` | 404 | 없는 리소스 |
+| `conflict` | 409 | 이미 가입된 이메일 |
+| `unsupported_media_type` | 415 | `Content-Type` 이 JSON 이 아님 |
+| `validation_failed` | 422 | 값이 규칙에 안 맞음 (`details` 에 필드별 메시지) |
+| `rate_limited` | 429 | 한도 초과 (`Retry-After` 헤더) |
+| `internal_error` | 500 | 예상 못 한 예외 |
+
+검증 실패에 **400 이 아니라 422** 를 쓴다. "요청 형식은 맞는데 값이 규칙에 안 맞다" 를 구분해 주면
+클라이언트가 "내 코드가 잘못 보냈나(400)" 와 "사용자 입력이 틀렸나(422)" 를 나눠 처리할 수 있다.
+
+에러는 `throw` 하고 래퍼가 받아 준다. 덕분에 핸들러 본문에는 성공 경로만 남는다.
+
+```ts
+// src/app/api/v1/posts/[id]/route.ts
+export const PATCH = apiRoute<{ id: string }>(async ({ request, params, auth }) => {
+  const { user } = requireAuth(auth);                       // 없으면 401
+  const post = loadPost(params.id);                          // 없으면 404
+  if (post.authorId !== user.id) throw forbidden("...");     // 403
+  const body = await parseJsonBody(request, postUpdateSchema); // 안 맞으면 422
+  ...
+});
+```
+
+### 5-4. 인증: 액세스 토큰과 API 키 (`src/lib/api/auth.ts`)
+
+둘 다 `Authorization: Bearer <값>` 으로 받는다. 성격이 달라서 둘 다 있다.
+
+| | 액세스 토큰 | API 키 |
+| --- | --- | --- |
+| 생김새 | `eyJhbGciOi...` (JWT) | `sk_8cee23a6...` |
+| 발급 | `POST /auth/token` (이메일+비번) | `POST /auth/keys` (토큰 필요) |
+| 유효기간 | 1시간 | 없음 |
+| 저장 | 서버에 저장 안 함 (stateless) | `api_keys` 테이블에 **해시만** |
+| 개별 폐기 | 불가 (만료를 기다림) | 가능 (`revoked_at`) |
+| 쓰는 곳 | 사용자 대신 행동하는 클라이언트 | 서버-투-서버 배치·봇 |
+
+**왜 쿠키를 안 쓰나.** 브라우저는 쿠키를 자동으로 붙인다 → 남의 사이트가 우리 사용자의 브라우저를 시켜
+요청을 보낼 수 있다(CSRF). `Authorization` 헤더는 자동으로 붙지 않으므로 CSRF 가 성립하지 않는다.
+그래서 `/api/v1` 은 **쿠키를 아예 읽지 않는다.** 브라우저에 로그인되어 있어도 이 API 에는 401 이 나온다.
+덕분에 CORS 를 `Access-Control-Allow-Origin: *` 로 열어도 안전하다 (쿠키 인증을 함께 받는다면 절대 안 된다).
+
+**토큰 혼동(token confusion) 막기.** 액세스 토큰을 세션 쿠키와 같은 키로 서명하면,
+API 토큰을 그대로 `session` 쿠키에 붙여 넣어도 검증을 통과한다. 용도가 다른 토큰은 서로 통용되면 안 되므로
+`SESSION_SECRET` 에서 HMAC 으로 **파생된 별도 키**를 쓴다. 환경변수는 하나만 관리하면서 두 토큰이 완전히 분리된다.
+
+```ts
+const accessTokenKey = new Uint8Array(
+  createHmac("sha256", sessionSecret).update("api-access-token-v1").digest(),
+);
+```
+
+**키는 해시로만 저장한다.** 비밀번호와 같은 원칙이지만 해시 함수는 다르다.
+
+- 비밀번호(`password.ts`) → **scrypt**. 사람이 만든 짧고 추측 가능한 문자열이라 *느린* 해시가 필요하다.
+- API 키(`api-keys.ts`) → **SHA-256**. 서버가 만든 256비트 난수라 무차별 대입이 불가능하고,
+  매 요청마다 `WHERE key_hash = ?` 로 행을 찾아야 하므로 *빠른* 해시여야 한다.
+  (scrypt 는 salt 가 행마다 달라 전체를 훑지 않으면 조회할 수 없다)
+
+**API 키로는 또 다른 API 키를 만들 수 없다** (403). 키 하나가 유출됐을 때 공격자가 스스로 키를 계속
+찍어내면 폐기가 의미를 잃기 때문이다. 키 관리는 "방금 비밀번호로 로그인한 사람"(액세스 토큰)만 할 수 있다.
+
+폐기는 행을 지우지 않고 `revoked_at` 만 채운다. 유출 사고가 났을 때 "언제 어떤 키가 쓰였는지"(`last_used_at`)
+이력이 남아야 무엇이 노출됐는지 추적할 수 있다.
+
+### 5-5. 공통 처리 래퍼 (`src/lib/api/route.ts`)
+
+모든 엔드포인트가 똑같이 해야 하는 일 — 인증, 레이트 리밋, 예외 → JSON 변환 — 을 한 곳에 모았다.
+
+```ts
+export const GET = apiRoute(async ({ request, params, auth }) => { ... });
+```
+
+- **인증을 먼저, 레이트 리밋을 나중에.** 누구인지 알아야 사용자 단위로 셀 수 있다.
+  반대로 하면 같은 사무실에서 나가는 모든 요청이 IP 하나의 몫을 나눠 쓰게 된다.
+- **`Authorization` 헤더가 아예 없으면 익명**(공개 읽기 가능), **있는데 유효하지 않으면 401.**
+  조용히 익명 취급하면 개발자가 토큰 만료를 모른 채 빈 결과만 보게 되어 더 나쁘다.
+- **예상 못 한 예외는 메시지를 감춘다.** 스택이나 SQL 문구가 응답에 섞이면 내부 구조가 노출된다.
+  원인은 서버 로그에만 남기고 클라이언트에는 일반적인 문구만 준다.
+- **`unstable_rethrow(error)`** 를 catch 맨 앞에 둔다. Next.js 내부 제어용 에러까지 삼키지 않기 위해서다.
+
+레이트 리밋은 익명 60회/분, 인증 600회/분이고 `X-RateLimit-Limit / -Remaining / -Reset` 헤더로 알려 준다.
+초과하면 429 + `Retry-After`. 구현은 프로세스 메모리 기반이라 서버가 여러 대면 각자 센다
+(실제 서비스에서는 Redis 나 호스팅 업체 기능을 쓴다). 여기서는 "공개 API 라면 상한이 반드시 있어야 한다" 는 것과
+헤더 규약을 보여 주는 게 목적이다.
+
+### 5-6. Route Handler 에서는 `updateTag` 를 못 쓴다
+
+Part 2 에서 Server Action 은 `updateTag("posts")` 로 캐시를 즉시 만료시켰다.
+그런데 **`updateTag` 는 Server Action 전용이라 Route Handler 에서 호출할 수 없다** (Next.js 16).
+공개 API 는 Route Handler 이므로 `revalidateTag` 를 쓴다.
+
+```ts
+// Server Action (src/app/posts/actions.ts)
+updateTag("posts");
+
+// Route Handler (src/app/api/v1/posts/route.ts)
+revalidateTag("posts", { expire: 0 });
+```
+
+`{ expire: 0 }` 는 "낡은 내용을 내주지 말고 다음 요청이 새로 만들게" 라는 뜻으로, `updateTag` 에 가장 가깝다.
+`"max"` 를 주면 stale-while-revalidate 가 되어 다음 요청은 옛 내용을 먼저 받는다.
+API 로 방금 글을 쓴 클라이언트가 바로 이어서 목록을 읽는 상황을 생각하면 `{ expire: 0 }` 이 맞다.
+
+`/todos` 화면은 `"use cache"` 가 아니라 `revalidatePath("/todos")` 로 갱신한다(Part 1과 같은 방식).
+Route Handler 에서 부르면 "다음에 그 경로를 방문할 때" 다시 렌더링된다.
+
+### 5-7. 캐시되지 않는 조회 함수를 따로 둔 이유
+
+화면용 `getPosts()`, `getPost()` 는 `"use cache"` 라서 최대 1분~1시간 낡은 값을 줄 수 있다.
+화면은 그래도 괜찮지만, **API 클라이언트는 방금 POST 로 만든 글이 바로 이어서 GET 되기를 기대한다.**
+그래서 `listPosts()`, `findPost()`, `listComments()`, `listTodos()`, `findTodo()` 를 캐시 없이 따로 만들었다.
+SQL 은 여전히 `src/lib/` 안에만 있다.
+
+댓글 목록은 화면(`getCommentThreads`)과 달리 **평탄한 배열 + `parentId`** 로 준다.
+트리를 잘라서 페이지네이션하면 "부모 없는 답글" 이 생기기 때문이다. 조립은 클라이언트 몫으로 남긴다.
+
+### 5-8. `serialize` — DB 행을 그대로 내보내지 않는다
+
+`src/lib/api/serialize.ts` 가 내부 타입을 공개 JSON 모양으로 바꾼다. 한 겹을 두는 이유는 세 가지다.
+
+1. 컬럼을 추가해도 API 응답이 멋대로 바뀌지 않는다 (내부 구조와 공개 계약의 분리).
+2. `password_hash` 같은 값이 실수로 새어 나갈 수 없다 — **여기에 안 적으면 안 나간다.**
+3. `imagePath`("uuid.jpg") 처럼 내부에서만 의미 있는 값을 바로 쓸 수 있는 **절대 URL** 로 바꿔 준다.
+
+글 작성자는 `{ id, name }` 만 준다. 공개 목록에 남의 이메일이 보이면 안 되기 때문이다.
+반면 `/auth/me` 는 본인 정보라서 이메일을 포함한다.
+
+### 5-9. CORS 는 `proxy.ts` 한 곳에서
+
+라우트마다 헤더를 붙이면 빠뜨리기 쉽다. 프리플라이트(`OPTIONS`) 응답과 CORS 헤더를 proxy 에서 한 번에 처리한다.
+
+```ts
+if (pathname.startsWith("/api/v1")) {
+  if (request.method === "OPTIONS") return withCors(new NextResponse(null, { status: 204 }));
+  return withCors(NextResponse.next());
+}
+```
+
+`Access-Control-Expose-Headers` 를 지정해야 브라우저 JS 가 `X-RateLimit-*` 을 읽을 수 있다.
+기본적으로 JS 는 몇 개 안 되는 헤더만 볼 수 있기 때문이다.
+
+### 5-10. 빌드 결과에서 확인하기
+
+`npm run build` 표에서 `/api/v1` 과 `/api/v1/openapi.json` 만 `○ (Static)` 이다.
+두 라우트는 요청 정보를 전혀 읽지 않아서 빌드 시점에 미리 만들어진다.
+나머지는 전부 `ƒ (Dynamic)` 인데, `Authorization` 헤더를 읽는 순간 "요청마다 실행" 으로 확정되기 때문이다.
+Cache Components 에서 **Route Handler 도 페이지와 같은 규칙**을 따른다는 것을 눈으로 보는 지점이다.
 
 ---
 
@@ -574,6 +839,9 @@ DB 파일(`data/*.db`)은 git 에 올리지 않는다. 대신 스키마와 시�
 | `npm run db:init` | DB 파일과 테이블 생성. 이미 있으면 아무것도 하지 않음 |
 | `npm run db:seed` | 비어 있는 테이블에만 샘플 데이터 삽입 |
 | `npm run db:seed -- --reset` | 모든 테이블을 비우고 샘플 데이터로 다시 채움 (id 도 1부터) |
+
+테이블은 `users`, `todos`, `posts`, `comments`, `api_keys` 다 (정의는 `src/lib/schema.ts`).
+`api_keys` 는 공개 API 용이며, 키 원문은 저장하지 않고 SHA-256 해시만 넣는다 (Part 5-4).
 
 샘플 데이터는 `scripts/seed-db.mts` 의 `SEED_TODOS`, `SEED_POSTS` 배열을 수정하면 된다.
 완전히 초기 상태로 돌리려면 `data/app.db`, `data/app.db-wal`, `data/app.db-shm` 을 지우고 다시 실행한다.
@@ -647,9 +915,20 @@ src/
         error-trigger.tsx, delete-post-button.tsx
     p/[id]/page.tsx # permanentRedirect 예 (/p/3 → /posts/3)
     api/
-      todos/route.ts  # REST API 예시
-      posts/route.ts  # 검색 API (?q=) / 커서 페이지 API (?cursor=&limit=)
+      todos/route.ts  # REST API 예시 (내부용, 데모 화면이 사용)
+      posts/route.ts  # 검색 API (?q=) / 커서 페이지 API (?cursor=&limit=) — 내부용
       uploads/[name]/route.ts  # 업로드 이미지 파일 응답
+      v1/             # 공개 API (Part 5). 외부 개발자용 계약, 버전 고정
+        route.ts              # 진입점 (정적. 엔드포인트 목록)
+        openapi.json/route.ts # OpenAPI 3.1 명세 (정적)
+        auth/
+          register/, token/, me/   # 가입 / 토큰 발급 / 신원 확인
+          keys/route.ts, keys/[id]/route.ts  # API 키 발급·목록·폐기
+        posts/route.ts, posts/[id]/route.ts  # 목록·작성 / 조회·수정·삭제
+        posts/[id]/comments/route.ts         # 댓글 목록·작성
+        comments/[id]/route.ts               # 댓글 삭제
+        todos/route.ts, todos/[id]/route.ts
+        */*.test.ts   # 라우트 핸들러를 직접 호출하는 테스트
   components/
     ui/             # shadcn/ui 컴포넌트
     modal.tsx       # 라우트 모달 껍데기 (router.back 으로 닫기)
@@ -658,7 +937,15 @@ src/
     user-menu.tsx   # 헤더 로그인 상태 (서버 컴포넌트)
   lib/
     schema.ts       # 테이블 정의 + 수동 마이그레이션 (앱과 스크립트가 공유)
-    schemas/        # Zod 검증 스키마 (post, auth, comment)
+    schemas/        # Zod 검증 스키마 (post, auth, comment, api)
+    api/            # 공개 API 인프라 (Part 5)
+      route.ts      # apiRoute() 래퍼: 인증 + 레이트 리밋 + 예외 → JSON
+      http.ts       # 응답 봉투(data/error), ApiError, 본문·쿼리 파싱
+      auth.ts       # Bearer 인증 (액세스 토큰 JWT / API 키), requireAuth
+      rate-limit.ts # 고정 윈도 레이트 리밋
+      serialize.ts  # 내부 타입 → 공개 JSON (password_hash 유출 차단)
+      openapi.ts    # OpenAPI 3.1 문서
+    api-keys.ts     # api_keys 접근 함수 (SHA-256 해시 저장, 폐기)
     *.test.ts       # 각 모듈 옆에 두는 테스트 (colocated)
     password.ts     # scrypt 해시 / 검증
     session.ts      # JWT 세션 쿠키 생성 / 검증 / 삭제

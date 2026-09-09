@@ -196,6 +196,39 @@ export function countPosts(): number {
   return row.count;
 }
 
+/**
+ * 공개 API(/api/v1/posts) 용 목록. offset 기반 + 전체 개수.
+ *
+ * getPostsPage() 와 달리 "use cache" 를 쓰지 않는다. 화면은 1분 늦어도 괜찮지만,
+ * API 클라이언트는 방금 POST 로 만든 글이 바로 이어서 GET 되기를 기대하기 때문이다.
+ * limit/offset 은 호출하는 쪽에서 이미 검증된 값이 들어온다 (schemas/api.ts).
+ */
+export function listPosts(
+  query: string,
+  limit: number,
+  offset: number,
+): { posts: Post[]; total: number } {
+  const like = `%${query}%`;
+  const where = query ? "WHERE p.title LIKE ? OR p.content LIKE ?" : "";
+  const params = query ? [like, like] : [];
+
+  const { total } = db
+    .prepare(`SELECT COUNT(*) AS total FROM posts p ${where}`)
+    .get(...params) as { total: number };
+
+  const rows = db
+    .prepare(`${SELECT_POST} ${where} ORDER BY p.id DESC LIMIT ? OFFSET ?`)
+    .all(...params, limit, offset) as PostRow[];
+
+  return { posts: rows.map(toPost), total };
+}
+
+/** 캐시되지 않는 단건 조회. getPost() 의 API 판. */
+export function findPost(id: number): Post | null {
+  const row = db.prepare(`${SELECT_POST} WHERE p.id = ?`).get(id) as PostRow | undefined;
+  return row ? toPost(row) : null;
+}
+
 // ---------------------------------------------------------------------------
 // 변경. 권한 검사(작성자 본인인지)는 호출하는 Server Action 에서 한다.
 // ---------------------------------------------------------------------------
