@@ -25,6 +25,7 @@ export const SCHEMA = `
     title      TEXT    NOT NULL,
     content    TEXT    NOT NULL,
     author_id  INTEGER REFERENCES users(id),   -- NULL 이면 작성자 없음(초기 샘플 등)
+    image_path TEXT,                            -- 첨부 이미지 파일명 (data/uploads/ 안). NULL 이면 없음
     created_at TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT    NOT NULL DEFAULT (datetime('now'))
   );
@@ -48,9 +49,12 @@ export const SCHEMA = `
 export function ensureSchema(db: DatabaseSync): void {
   db.exec(SCHEMA);
 
-  // posts.author_id 는 인증 기능을 붙이면서 나중에 추가된 컬럼
+  // 나중에 추가된 컬럼들. 순서대로 누적된다 (간단한 마이그레이션 이력 역할)
   if (!hasColumn(db, "posts", "author_id")) {
     db.exec("ALTER TABLE posts ADD COLUMN author_id INTEGER REFERENCES users(id)");
+  }
+  if (!hasColumn(db, "posts", "image_path")) {
+    db.exec("ALTER TABLE posts ADD COLUMN image_path TEXT");
   }
 }
 

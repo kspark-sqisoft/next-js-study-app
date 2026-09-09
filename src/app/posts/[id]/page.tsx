@@ -7,14 +7,17 @@
 //    "id 와 무관한 정적 셸" 을 만들 수 있다.
 import type { Metadata } from "next";
 import { Suspense } from "react";
+import Image from "next/image";
 import { notFound } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getPost, getPostIds } from "@/lib/posts";
+import { imageUrl } from "@/lib/uploads";
 import { CommentsSection } from "./comments-section";
 import { ErrorTrigger } from "./error-trigger";
 import { OtherPosts } from "./other-posts";
 import { PostOwnerActions } from "./post-owner-actions";
+import { RecentlyViewedLoader } from "./recently-viewed-loader";
 
 // 빌드 시 미리 렌더링할 id. Cache Components 에서는 최소 1개를 돌려줘야 한다.
 // DB 가 비어 있으면(첫 clone 등) 자리표시자를 주고, 페이지에서 notFound() 로 처리한다.
@@ -63,11 +66,28 @@ async function PostDetail({ params }: Pick<PageProps<"/posts/[id]">, "params">) 
         <p className="mt-1 text-xs text-muted-foreground">
           {post.authorName ?? "작성자 없음"} · 작성 {post.createdAt} · 수정 {post.updatedAt}
         </p>
+        {post.imagePath && (
+          // next/image: 크기를 모르는 업로드 이미지는 fill + 부모의 relative/aspect 로 자리를 잡는다.
+          // 브라우저 폭에 맞춰 리사이즈·WebP 변환된 결과가 /_next/image 를 통해 내려온다 (Network 탭 확인).
+          <div className="relative mt-4 aspect-video overflow-hidden rounded-lg border">
+            <Image
+              src={imageUrl(post.imagePath)}
+              alt={post.title}
+              fill
+              sizes="(max-width: 768px) 100vw, 672px"
+              className="object-cover"
+              priority
+            />
+          </div>
+        )}
         {/* whitespace-pre-line: 저장된 줄바꿈을 그대로 표시 */}
         <div className="mt-6 whitespace-pre-line text-sm leading-relaxed">
           {post.content}
         </div>
       </article>
+
+      {/* next/dynamic + ssr:false: localStorage 를 쓰는 브라우저 전용 컴포넌트를 클라이언트에서만 로드 */}
+      <RecentlyViewedLoader currentId={post.id} currentTitle={post.title} />
 
       <div className="flex flex-wrap items-center gap-3">
         {/* 세션을 읽는 부분만 Suspense. 본문(캐시)은 즉시 나오고 버튼은 요청 시 채워진다 */}

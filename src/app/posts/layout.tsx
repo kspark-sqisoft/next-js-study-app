@@ -16,6 +16,9 @@ export default function PostsLayout({ children }: LayoutProps<"/posts">) {
         <Link href="/posts/client" className="font-medium hover:underline">
           클라이언트 검색
         </Link>
+        <Link href="/posts/releases" className="font-medium hover:underline">
+          외부 API
+        </Link>
       </nav>
       <Separator className="my-4" />
       {children}

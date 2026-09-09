@@ -11,6 +11,7 @@ export type Post = {
   content: string;
   authorId: number | null; // NULL 이면 작성자 없음 (초기 샘플 등)
   authorName: string | null;
+  imagePath: string | null; // 첨부 이미지 파일명. 화면에서는 /api/uploads/<파일명> 으로 접근
   createdAt: string;
   updatedAt: string;
 };
@@ -21,6 +22,7 @@ type PostRow = {
   content: string;
   author_id: number | null;
   author_name: string | null;
+  image_path: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -39,6 +41,7 @@ function toPost(row: PostRow): Post {
     content: row.content,
     authorId: row.author_id,
     authorName: row.author_name,
+    imagePath: row.image_path,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -62,6 +65,53 @@ export async function getPosts(): Promise<{ posts: Post[]; cachedAt: string }> {
 
   const rows = db.prepare(`${SELECT_POST} ORDER BY p.id DESC`).all() as PostRow[];
   return { posts: rows.map(toPost), cachedAt: new Date().toISOString() };
+}
+
+export const PAGE_SIZE = 5;
+
+export type PostsPage = {
+  posts: Post[];
+  total: number;
+  page: number;
+  totalPages: number;
+  query: string;
+  cachedAt: string;
+};
+
+/**
+ * 검색 + 페이지네이션 목록. /posts?q=검색어&page=2 에서 사용.
+ * 인자(query, page)가 캐시 키에 포함되므로 "검색어 × 페이지" 조합마다 별도 캐시 엔트리가 생긴다.
+ * 태그는 같은 "posts" 라서 글이 바뀌면 모든 조합이 한 번에 무효화된다.
+ * searchParams 자체는 여기서 읽지 않는다. 캐시 함수 안에서는 요청 API 를 읽을 수 없으므로
+ * 호출하는 쪽(페이지)이 값을 꺼내서 인자로 넘긴다.
+ */
+export async function getPostsPage(query: string, page: number): Promise<PostsPage> {
+  "use cache";
+  cacheLife("minutes");
+  cacheTag("posts");
+
+  const like = `%${query}%`;
+  const where = query ? "WHERE p.title LIKE ? OR p.content LIKE ?" : "";
+  const params = query ? [like, like] : [];
+
+  const { total } = db
+    .prepare(`SELECT COUNT(*) AS total FROM posts p ${where}`)
+    .get(...params) as { total: number };
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const safePage = Math.min(Math.max(1, page), totalPages);
+
+  const rows = db
+    .prepare(`${SELECT_POST} ${where} ORDER BY p.id DESC LIMIT ? OFFSET ?`)
+    .all(...params, PAGE_SIZE, (safePage - 1) * PAGE_SIZE) as PostRow[];
+
+  return {
+    posts: rows.map(toPost),
+    total,
+    page: safePage,
+    totalPages,
+    query,
+    cachedAt: new Date().toISOString(),
+  };
 }
 
 /**
@@ -118,18 +168,28 @@ export function countPosts(): number {
 // 변경. 권한 검사(작성자 본인인지)는 호출하는 Server Action 에서 한다.
 // ---------------------------------------------------------------------------
 
-export function createPost(title: string, content: string, authorId: number): Post {
+export function createPost(
+  title: string,
+  content: string,
+  authorId: number,
+  imagePath: string | null = null,
+): Post {
   const row = db
-    .prepare("INSERT INTO posts (title, content, author_id) VALUES (?, ?, ?) RETURNING id")
-    .get(title, content, authorId) as { id: number };
+    .prepare("INSERT INTO posts (title, content, author_id, image_path) VALUES (?, ?, ?, ?) RETURNING id")
+    .get(title, content, authorId, imagePath) as { id: number };
   const full = db.prepare(`${SELECT_POST} WHERE p.id = ?`).get(row.id) as PostRow;
   return toPost(full);
 }
 
-export function updatePost(id: number, title: string, content: string): void {
+export function updatePost(
+  id: number,
+  title: string,
+  content: string,
+  imagePath: string | null,
+): void {
   db.prepare(
-    "UPDATE posts SET title = ?, content = ?, updated_at = datetime('now') WHERE id = ?",
-  ).run(title, content, id);
+    "UPDATE posts SET title = ?, content = ?, image_path = ?, updated_at = datetime('now') WHERE id = ?",
+  ).run(title, content, imagePath, id);
 }
 
 export function deletePost(id: number): boolean {

@@ -51,3 +51,6 @@ next-env.d.ts
 # playwright
 /test-results/
 /playwright-report/
+
+# 업로드된 이미지 (학습용 로컬 저장소)
+/data/uploads/

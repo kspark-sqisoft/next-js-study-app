@@ -5,7 +5,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 vi.mock("next/cache", () => ({ cacheLife: vi.fn(), cacheTag: vi.fn(), updateTag: vi.fn(), revalidateTag: vi.fn() }));
 
 const { createUser } = await import("./users");
-const { countPosts, createPost, deletePost, getPost, getPostIds, getPosts, searchPosts, updatePost } =
+const { countPosts, createPost, deletePost, getPost, getPostIds, getPosts, getPostsPage, PAGE_SIZE, searchPosts, updatePost } =
   await import("./posts");
 
 let author: number;
@@ -33,7 +33,7 @@ describe("posts", () => {
 
   it("수정하면 updated_at 이 갱신되고, 검색은 제목과 본문을 모두 본다", async () => {
     const post = createPost("검색용", "특별한단어 포함", author);
-    updatePost(post.id, "바뀐 제목", "바뀐 본문 특별한단어");
+    updatePost(post.id, "바뀐 제목", "바뀐 본문 특별한단어", null);
     const updated = await getPost(post.id);
     expect(updated?.title).toBe("바뀐 제목");
     expect(searchPosts("특별한단어").some((p) => p.id === post.id)).toBe(true);
@@ -46,5 +46,33 @@ describe("posts", () => {
     expect(deletePost(post.id)).toBe(false);
     expect(await getPost(post.id)).toBeNull();
     expect(await getPost(999999)).toBeNull();
+  });
+});
+
+describe("getPostsPage (검색 + 페이지네이션)", () => {
+  it("페이지 크기만큼 자르고, 범위 밖 페이지는 마지막 페이지로 보정한다", async () => {
+    const u = createUser("p", "p@test.local", "hash").id;
+    for (let i = 1; i <= 7; i++) createPost(`페이지 글 ${i}`, "본문", u);
+
+    const p1 = await getPostsPage("페이지 글", 1);
+    expect(p1.total).toBe(7);
+    expect(p1.totalPages).toBe(2);
+    expect(p1.posts).toHaveLength(PAGE_SIZE);
+    expect(p1.posts[0].title).toBe("페이지 글 7"); // 최신순
+
+    const p2 = await getPostsPage("페이지 글", 2);
+    expect(p2.posts).toHaveLength(2);
+
+    const beyond = await getPostsPage("페이지 글", 99);
+    expect(beyond.page).toBe(2); // 보정
+    const zero = await getPostsPage("페이지 글", 0);
+    expect(zero.page).toBe(1);
+  });
+
+  it("검색어가 없으면 전체, 결과가 없으면 total 0 과 1페이지", async () => {
+    const all = await getPostsPage("", 1);
+    expect(all.total).toBe(countPosts());
+    const none = await getPostsPage("절대없는검색어xyz", 1);
+    expect(none).toMatchObject({ total: 0, page: 1, totalPages: 1, posts: [] });
   });
 });

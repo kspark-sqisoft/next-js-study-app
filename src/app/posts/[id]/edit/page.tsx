@@ -6,6 +6,7 @@ import { notFound, redirect } from "next/navigation";
 import { Skeleton } from "@/components/ui/skeleton";
 import { requireUser } from "@/lib/dal";
 import { getPost, getPostIds } from "@/lib/posts";
+import { imageUrl } from "@/lib/uploads";
 import { updatePostAction } from "../../actions";
 import { PostForm } from "../../post-form";
 
@@ -41,7 +42,11 @@ async function EditPost({ params }: Pick<PageProps<"/posts/[id]/edit">, "params"
   return (
     <div className="space-y-4">
       <h1 className="text-xl font-semibold">글 수정</h1>
-      <PostForm action={action} initial={{ title: post.title, content: post.content }} submitLabel="저장" />
+      <PostForm
+        action={action}
+        initial={{ title: post.title, content: post.content, imageUrl: post.imagePath ? imageUrl(post.imagePath) : null }}
+        submitLabel="저장"
+      />
     </div>
   );
 }

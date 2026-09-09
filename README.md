@@ -128,7 +128,13 @@ Next.js 16 에서는 ISR 을 별도 설정이 아니라 `"use cache"` + `cacheLi
 | 15 | 인가: DAL, 작성자만 수정/삭제, proxy | `src/lib/dal.ts`, `src/app/posts/actions.ts`, `src/proxy.ts` |
 | 16 | Cache Components 에서 세션 다루기 | `src/app/layout.tsx`, `src/app/posts/[id]/page.tsx` |
 | 17 | 2단 댓글: 트리 조립, CASCADE, 태그별 캐시 | `src/lib/comments.ts`, `src/app/posts/[id]/comments-section.tsx` |
-| 18 | 테스트: 단위 · 컴포넌트 · Route Handler · E2E | `src/**/*.test.ts(x)`, `e2e/`, 아래 Part 4 |
+| 18 | 테스트: 단위 · 컴포넌트 · Route Handler · E2E | `src/**/*.test.ts(x)`, `e2e/`, Part 4 |
+| 19 | `searchParams`: URL 로 검색·페이지네이션 상태 관리 | `src/app/posts/page.tsx`, `getPostsPage` |
+| 20 | 외부 API `fetch` 캐시 + `use()` 로 Promise 넘기기 | `src/lib/github.ts`, `src/app/posts/releases/` |
+| 21 | 이미지 업로드, 파일 응답 Route Handler, `next/image` | `src/lib/uploads.ts`, `src/app/api/uploads/[name]/route.ts` |
+| 22 | `next/dynamic` (`ssr: false`) 로 브라우저 전용 컴포넌트 지연 로딩 | `src/app/posts/[id]/recently-viewed*.tsx` |
+
+이후에 볼 항목은 [docs/NEXT_STEPS.md](docs/NEXT_STEPS.md) 에 정리해 두었다.
 
 ---
 
@@ -281,6 +287,39 @@ Zod 쪽 핵심 코드 흐름 (`createPostAction`):
 
 다음 단계로는 같은 스키마를 브라우저에서도 써서 전송 전에 검증하는 방식(react-hook-form + `@hookform/resolvers/zod`)이 있다. 이때도 서버 검증은 그대로 둔다.
 
+### 2-9. `searchParams` 로 검색과 페이지네이션 (`src/app/posts/page.tsx`)
+
+검색어와 페이지 번호를 컴포넌트 state 가 아니라 **URL** 에 둔다 (`/posts?q=스트리밍&page=2`). 새로고침, 뒤로 가기, 링크 공유가 모두 자연스럽게 동작한다.
+
+- `searchParams` 는 `params` 처럼 Promise 이고, **요청 시점 데이터** 다. Cache Components 에서는 이걸 읽는 컴포넌트(`PostList`)만 `<Suspense>` 안에 두고, 제목/버튼은 정적 셸에 남긴다.
+- 캐시 함수 안에서는 요청 API 를 읽을 수 없으므로 값을 꺼낸 뒤 **인자로** 넘긴다: `getPostsPage(query, page)`. 인자가 캐시 키에 들어가 "검색어 × 페이지" 조합마다 별도 엔트리가 생기고, 태그(`posts`)는 같아서 글이 바뀌면 전부 무효화된다.
+- 검색 폼은 `<form method="get">`. JS 없이도 브라우저가 `?q=` 로 이동시켜 준다. 페이지 링크는 `<Link href="/posts?q=...&page=2">`.
+- 잘못된 값(`page=abc`, `page=999`)은 서버에서 보정한다. URL 은 사용자 입력이다.
+
+### 2-10. 외부 API `fetch` 와 `use()` (`src/lib/github.ts`, `/posts/releases`)
+
+GitHub API 에서 Next.js 릴리스 목록을 가져온다. 두 가지를 배운다.
+
+**외부 fetch 캐시**: Cache Components 에서는 DB 조회와 똑같이 `"use cache"` + `cacheLife("hours")` + `cacheTag` 로 감싼다. 예전 모델의 `fetch(url, { next: { revalidate: 3600, tags } })` 옵션이 이렇게 바뀌었다. 실패하면 throw 하는데, 던져진 에러는 캐시되지 않아 다음 요청에서 다시 시도되고 화면에서는 `error.tsx` 가 잡는다. "다시 가져오기" 버튼은 `updateTag` 로 캐시를 지운다. 외부 데이터든 DB 데이터든 무효화 방법이 같다.
+
+**`use()` 패턴**: 서버 컴포넌트가 `getNextReleases()` 를 **await 하지 않고** Promise 를 만들어 `<Suspense>` 안의 클라이언트 컴포넌트(`release-list.tsx`)에 props 로 넘긴다. 클라이언트는 `use(promise)` 로 값을 꺼낸다. 데이터 가져오기는 서버가, 필터 토글 같은 상호작용은 클라이언트가 맡는 분업이다. 스트리밍의 다른 절반이라고 보면 된다.
+
+### 2-11. 이미지 업로드와 `next/image` (`src/lib/uploads.ts`, `/api/uploads/[name]`)
+
+- 폼에 `<input type="file" name="image">` 를 두면 Server Action 이 `formData.get("image")` 로 `File` 을 받는다. 별도 업로드 API 가 필요 없다.
+- 파일은 `data/uploads/` 에 서버가 만든 UUID 이름으로 저장하고 DB 에는 파일명만 둔다. `public/` 에 두지 않는 이유는 배포 환경에서 런타임에 추가한 파일이 서빙되지 않을 수 있어서다. 대신 `GET /api/uploads/[name]` Route Handler 가 파일을 읽어 `Content-Type` 과 긴 `Cache-Control` 로 응답한다 (바이너리 응답 예).
+- 검증(`uploads-validate.ts`): 타입 4종, 2MB 이하. 순수 함수라 단위 테스트가 있다. 파일명은 정규식으로 검사해 경로 탈출(`../`)을 막는다.
+- 표시는 `next/image`. 크기를 모르는 업로드 이미지는 `fill` + 부모의 `relative` 와 `aspect-video` 로 자리를 잡고, `sizes` 로 브라우저가 적절한 해상도를 고르게 한다. 최적화된 결과는 `/_next/image?url=...` 로 내려온다 (Network 탭에서 WebP 로 변환된 것을 볼 수 있다). 목록의 작은 썸네일은 일부러 `<img>` 를 써서 차이를 비교한다.
+- 수정 시 새 파일이면 교체(이전 파일 삭제), "현재 이미지 삭제" 체크면 제거, 글 삭제 시 파일도 삭제.
+
+### 2-12. `next/dynamic` 으로 브라우저 전용 컴포넌트 (`recently-viewed*.tsx`)
+
+`localStorage` 로 "최근 본 글" 을 기록하는 위젯. 렌더링 중에 `localStorage` 를 읽으므로 서버에서는 실행할 수 없다.
+
+- `dynamic(() => import("./recently-viewed"), { ssr: false, loading })` 로 감싸면 (1) 서버 HTML 에 포함되지 않고 (2) 별도 JS 청크로 분리되어 (3) hydration 뒤 브라우저에서 로드된다.
+- `ssr: false` 는 **클라이언트 컴포넌트 안에서만** 쓸 수 있다. 그래서 `recently-viewed-loader.tsx` 라는 얇은 `"use client"` 래퍼를 두고 서버 컴포넌트(`page.tsx`)는 그 래퍼를 쓴다.
+- 언제 쓰나: `window` 에 의존하는 라이브러리(차트, 에디터, 지도), 처음엔 안 보이는 무거운 UI(모달). 그 외에는 서버 컴포넌트가 이미 자동으로 코드 분할하므로 불필요하다.
+
 ---
 
 ## Part 3. 인증과 권한, 댓글
@@ -430,13 +469,16 @@ npx playwright show-trace test-results/<폴더>/trace.zip   # 실패한 테스�
 ```
 ◐ /                    Partial Prerender   (헤더의 로그인 상태가 Suspense 안에서 스트리밍)
 ◐ /login, /signup      Partial Prerender
-◐ /posts               Partial Prerender   (Revalidate 1m, Expire 1h — 목록은 ISR)
+◐ /posts               Partial Prerender   (목록은 요청 시 q·page 조합별로 "use cache", 1분 재검증)
 ◐ /posts/[id]          Partial Prerender
 ◐ /posts/[id]/edit     Partial Prerender
 ◐ /posts/client        Partial Prerender
+◐ /posts/releases      Partial Prerender   (Revalidate 1h — 외부 API 캐시)
 ◐ /todos               Partial Prerender
 ƒ /api/posts           Dynamic
 ƒ /api/todos           Dynamic
+ƒ /api/uploads/[name]  Dynamic
+ƒ Proxy (Middleware)                        (src/proxy.ts)
 ```
 
 인증을 붙이기 전에는 `/`, `/posts`, `/posts/client` 가 `○ Static` 이었다. 헤더에서 세션을 읽기 시작하면서 전부 `◐` 가 됐지만, 세션 부분만 Suspense 안에 있으므로 나머지는 여전히 정적 셸로 즉시 나간다.
@@ -480,7 +522,8 @@ vitest.config.mts   # 단위/컴포넌트 테스트 설정
 playwright.config.ts # E2E 설정 (빌드 → 3100 포트 → data/e2e.db)
 e2e/                # Playwright 테스트
 next.config.ts      # cacheComponents: true
-data/               # SQLite 파일 위치 (git 제외)
+data/               # SQLite 파일과 업로드 이미지 (git 제외)
+docs/NEXT_STEPS.md  # 이후에 추가할 학습 항목
 scripts/
   init-db.mts       # DB 파일 / 테이블 생성
   seed-db.mts       # 샘플 데이터 삽입
@@ -516,8 +559,13 @@ src/
         post-owner-actions.tsx  # 작성자에게만 수정/삭제 (Suspense 안)
         comments-section.tsx    # 2단 댓글 (캐시된 목록 + 현재 사용자)
         comment-form.tsx, reply-toggle.tsx, delete-comment-button.tsx
-        edit/page.tsx     # 글 수정 (작성자만)
+        edit/page.tsx     # 글 수정 (작성자만, 이미지 교체/삭제)
+        recently-viewed.tsx        # localStorage 위젯 (브라우저 전용)
+        recently-viewed-loader.tsx # next/dynamic ssr:false 래퍼
         error-trigger.tsx, delete-post-button.tsx
+      releases/
+        page.tsx          # 외부 API 를 Promise 로 넘기는 서버 컴포넌트
+        release-list.tsx  # use() 로 읽는 클라이언트 컴포넌트
       client/
         layout.tsx        # TanStack Query Provider 적용 범위
         providers.tsx     # QueryClientProvider + DevTools
@@ -528,6 +576,7 @@ src/
     api/
       todos/route.ts  # REST API 예시
       posts/route.ts  # 검색 API (?q=)
+      uploads/[name]/route.ts  # 업로드 이미지 파일 응답
   components/
     ui/             # shadcn/ui 컴포넌트
     user-menu.tsx   # 헤더 로그인 상태 (서버 컴포넌트)
@@ -540,6 +589,8 @@ src/
     dal.ts          # getCurrentUser(), requireUser()
     users.ts        # users 접근 함수
     comments.ts     # comments 접근 함수 (2단 트리, 태그별 캐시)
+    github.ts       # 외부 API fetch ("use cache")
+    uploads.ts, uploads-validate.ts  # 이미지 저장/삭제/읽기, 검증 규칙
     db.ts           # SQLite 연결 (앱 전체에서 하나 공유)
     todos.ts        # todos 접근 함수 (connection() 으로 SSR)
     posts.ts        # posts 접근 함수 (일부 "use cache")

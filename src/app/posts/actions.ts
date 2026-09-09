@@ -14,14 +14,22 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { getCurrentUser } from "@/lib/dal";
 import { commentsTag, createComment, deleteComment, findComment } from "@/lib/comments";
+import { RELEASES_TAG } from "@/lib/github";
 import { createPost, deletePost, getPost, updatePost } from "@/lib/posts";
+import { deleteImage, saveImage } from "@/lib/uploads";
 import { commentSchema } from "@/lib/schemas/comment";
 import { postSchema, type PostFieldErrors } from "@/lib/schemas/post";
 
 export type PostFormState = {
-  errors?: PostFieldErrors & { form?: string[] };
+  errors?: PostFieldErrors & { form?: string[]; image?: string[] };
   fields?: { title: string; content: string };
 } | null;
+
+// <input type="file" name="image"> 값. 파일을 고르지 않으면 size 0 인 File 이 온다.
+function imageFrom(formData: FormData): File | null {
+  const value = formData.get("image");
+  return value instanceof File ? value : null;
+}
 
 function parsePostForm(formData: FormData) {
   const raw = {
@@ -42,7 +50,11 @@ export async function createPostAction(_prev: PostFormState, formData: FormData)
     return { errors: z.flattenError(result.error).fieldErrors, fields: raw };
   }
 
-  const post = createPost(result.data.title, result.data.content, user.id);
+  // 이미지는 선택 사항. 검증 실패면 폼 에러로 돌려준다 (다른 입력값은 유지)
+  const saved = await saveImage(imageFrom(formData));
+  if (saved && "error" in saved) return { errors: { image: [saved.error] }, fields: raw };
+
+  const post = createPost(result.data.title, result.data.content, user.id, saved?.name ?? null);
 
   // updateTag: 다음 요청이 "새 데이터를 기다렸다가" 응답한다 (read-your-own-writes).
   updateTag("posts");
@@ -63,7 +75,19 @@ export async function updatePostAction(id: number, _prev: PostFormState, formDat
     return { errors: z.flattenError(result.error).fieldErrors, fields: raw };
   }
 
-  updatePost(id, result.data.title, result.data.content);
+  // 이미지: 새 파일이 오면 교체, "삭제" 체크면 제거, 둘 다 아니면 유지
+  let imagePath = post.imagePath;
+  const saved = await saveImage(imageFrom(formData));
+  if (saved && "error" in saved) return { errors: { image: [saved.error] }, fields: raw };
+  if (saved) {
+    await deleteImage(post.imagePath);
+    imagePath = saved.name;
+  } else if (formData.get("removeImage") === "on") {
+    await deleteImage(post.imagePath);
+    imagePath = null;
+  }
+
+  updatePost(id, result.data.title, result.data.content, imagePath);
   updateTag("posts");
   updateTag(`post-${id}`);
   redirect(`/posts/${id}`);
@@ -79,6 +103,7 @@ export async function deletePostAction(id: number) {
   if (post.authorId !== user.id) return { error: "본인이 작성한 글만 삭제할 수 있습니다." };
 
   deletePost(id); // comments 는 ON DELETE CASCADE 로 함께 삭제
+  await deleteImage(post.imagePath); // 첨부 이미지 파일도 정리
   updateTag("posts");
   updateTag(`post-${id}`);
   redirect("/posts");
@@ -146,4 +171,9 @@ export async function refreshPostsNowAction() {
 //    다음 요청은 기존 캐시를 그대로 주고, 백그라운드에서 새로 만든다. 그 다음 요청부터 새 값이 보인다.
 export async function refreshPostsInBackgroundAction() {
   revalidateTag("posts", "max");
+}
+
+// 외부 API(GitHub 릴리스) 캐시 갱신. 외부 fetch 도 태그로 무효화하는 방법은 DB 조회와 같다.
+export async function refreshReleasesAction() {
+  updateTag(RELEASES_TAG);
 }
