@@ -25,7 +25,6 @@ README 의 학습 순서(1~22단계)를 마친 뒤 이어서 볼 만한 주제�
 - **`partialPrefetching` 과 `<Link prefetch={true}>`** — 로그인 사용자 전용 페이지의 즉시 이동.
 - **트랜잭션** — 글 + 댓글 + 이미지처럼 여러 테이블/파일을 한 번에 바꿀 때 (`BEGIN/COMMIT`).
 - **DB 마이그레이션 도구 (Drizzle 또는 Prisma)** — `src/lib/schema.ts` 의 수동 마이그레이션을 도구로 대체. 보류 중이던 "직접 접근 vs Prisma vs tRPC" 비교는 댓글 기능을 소재로.
-- **무한 스크롤** — TanStack Query `useInfiniteQuery` + Route Handler 커서 페이지네이션.
 
 ## 폼과 클라이언트
 

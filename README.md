@@ -133,6 +133,7 @@ Next.js 16 에서는 ISR 을 별도 설정이 아니라 `"use cache"` + `cacheLi
 | 20 | 외부 API `fetch` 캐시 + `use()` 로 Promise 넘기기 | `src/lib/github.ts`, `src/app/posts/releases/` |
 | 21 | 이미지 업로드, 파일 응답 Route Handler, `next/image` | `src/lib/uploads.ts`, `src/app/api/uploads/[name]/route.ts` |
 | 22 | `next/dynamic` (`ssr: false`) 로 브라우저 전용 컴포넌트 지연 로딩 | `src/app/posts/[id]/recently-viewed*.tsx` |
+| 23 | 무한 스크롤: 커서 페이지네이션 + `useInfiniteQuery` + IntersectionObserver | `src/app/posts/feed/`, `getPostsByCursor` |
 
 이후에 볼 항목은 [docs/NEXT_STEPS.md](docs/NEXT_STEPS.md) 에 정리해 두었다.
 
@@ -260,7 +261,7 @@ curl 로 보면 첫 바이트(TTFB) 는 수 ms, 전체 완료는 1.5초다. 서�
 
 SWR 과 TanStack Query 는 같은 문제를 푸는 경쟁 라이브러리다. Next.js 의 `"use cache"` 가 **서버 캐시** 라면 이들은 **브라우저 캐시** 로, 층위가 달라 대체 관계가 아니다.
 
-`layout.tsx` 에서 Provider 를 `/posts/client` 세그먼트에만 적용했다. 앱 전체(root layout)에 두지 않은 것은 필요한 범위에만 두기 위해서다.
+`QueryClientProvider` 는 `src/app/posts/layout.tsx` 에서 `/posts` 세그먼트에만 적용했다. 앱 전체(root layout)에 두지 않은 것은 필요한 범위에만 두기 위해서다.
 
 ### 2-8. 폼 검증: 손 검증 vs Zod
 
@@ -319,6 +320,26 @@ GitHub API 에서 Next.js 릴리스 목록을 가져온다. 두 가지를 배운
 - `dynamic(() => import("./recently-viewed"), { ssr: false, loading })` 로 감싸면 (1) 서버 HTML 에 포함되지 않고 (2) 별도 JS 청크로 분리되어 (3) hydration 뒤 브라우저에서 로드된다.
 - `ssr: false` 는 **클라이언트 컴포넌트 안에서만** 쓸 수 있다. 그래서 `recently-viewed-loader.tsx` 라는 얇은 `"use client"` 래퍼를 두고 서버 컴포넌트(`page.tsx`)는 그 래퍼를 쓴다.
 - 언제 쓰나: `window` 에 의존하는 라이브러리(차트, 에디터, 지도), 처음엔 안 보이는 무거운 UI(모달). 그 외에는 서버 컴포넌트가 이미 자동으로 코드 분할하므로 불필요하다.
+
+### 2-13. 무한 스크롤 (`/posts/feed`)
+
+`/posts` 의 번호 페이지네이션과 같은 데이터를 다른 UX 로 보여 준다. 세 가지 조각으로 이루어진다.
+
+| 조각 | 파일 | 역할 |
+| --- | --- | --- |
+| 커서 조회 | `src/lib/posts.ts` 의 `getPostsByCursor` | "마지막으로 본 id 보다 작은 것 N개". `limit+1` 개를 읽어 다음 페이지 유무를 판단 |
+| API | `src/app/api/posts/route.ts` (`?cursor=&limit=`) | `{ posts, nextCursor }` 를 돌려준다. `nextCursor` 가 `null` 이면 끝 |
+| 클라이언트 | `src/app/posts/feed/post-feed.tsx` | `useInfiniteQuery` 로 페이지를 쌓고, `IntersectionObserver` 로 끝을 감지 |
+
+**offset 과 cursor 의 차이**: `/posts` 는 `OFFSET (page-1)*5` 로 건너뛰는 방식이라 스크롤 중에 새 글이 추가되면 항목이 밀려 중복이나 누락이 생길 수 있다. 커서 방식은 `id < 마지막 id` 조건이라 그런 문제가 없고, 큰 offset 을 세지 않아 뒤 페이지도 빠르다. 대신 "3페이지로 바로 가기" 는 못 한다.
+
+**첫 페이지는 서버에서**: 서버 컴포넌트가 캐시된 `getPostsPage("", 1)` 로 첫 5개를 렌더링해 `initialData` 로 넘긴다. 정적 셸에 목록이 들어가므로 빈 화면 없이 바로 보이고, 이후 페이지만 브라우저가 가져온다. 이렇게 서버 데이터와 클라이언트 페칭 라이브러리의 캐시를 이어 붙이는 것이 문서의 "Provide initial data from a Server Component" 패턴이다.
+
+**끝 감지**: 목록 아래에 빈 `div`(sentinel) 를 두고 `IntersectionObserver` 로 화면에 들어오는지 본다. `rootMargin: "200px"` 로 끝에 닿기 전에 미리 요청해 끊김을 줄인다. 화면이 커서 스크롤이 안 생기는 경우를 위해 "더 보기" 버튼도 둔다.
+
+**Cache Components 와의 충돌 한 가지**: TanStack Query 는 내부에서 `Date.now()` 를 쓰는데, 빌드 프리렌더 중에 이런 값이 정적 셸에 굳는 것을 Next.js 가 에러로 막는다 (`Route "/posts/feed": Next.js encountered the unstable value Date.now() in a Client Component`). 문서의 처방은 클라이언트 컴포넌트 첫 줄에서 `use(io())` 를 호출하는 것이다. 프리렌더 중에는 suspend 해서 부모 `<Suspense>` 의 fallback 이 셸에 들어가고, 실제 요청과 브라우저에서는 즉시 통과한다. 그래서 `page.tsx` 는 같은 첫 페이지를 정적 `StaticList` 로 fallback 에 그려 두어, 셸에도 목록이 보이게 했다.
+
+TanStack Query 의 `QueryClientProvider` 는 이 페이지와 `/posts/client` 가 함께 쓰므로 `src/app/posts/layout.tsx` 로 올렸다.
 
 ---
 
@@ -473,6 +494,7 @@ npx playwright show-trace test-results/<폴더>/trace.zip   # 실패한 테스�
 ◐ /posts/[id]          Partial Prerender
 ◐ /posts/[id]/edit     Partial Prerender
 ◐ /posts/client        Partial Prerender
+◐ /posts/feed          Partial Prerender   (첫 페이지는 셸에, 이후는 브라우저 fetch)
 ◐ /posts/releases      Partial Prerender   (Revalidate 1h — 외부 API 캐시)
 ◐ /todos               Partial Prerender
 ƒ /api/posts           Dynamic
@@ -563,19 +585,21 @@ src/
         recently-viewed.tsx        # localStorage 위젯 (브라우저 전용)
         recently-viewed-loader.tsx # next/dynamic ssr:false 래퍼
         error-trigger.tsx, delete-post-button.tsx
+      providers.tsx     # TanStack Query Provider (/posts 전체)
+      feed/
+        page.tsx          # 무한 스크롤 (첫 페이지 서버 렌더링)
+        post-feed.tsx     # useInfiniteQuery + IntersectionObserver
       releases/
         page.tsx          # 외부 API 를 Promise 로 넘기는 서버 컴포넌트
         release-list.tsx  # use() 로 읽는 클라이언트 컴포넌트
       client/
-        layout.tsx        # TanStack Query Provider 적용 범위
-        providers.tsx     # QueryClientProvider + DevTools
         page.tsx          # 세 방식 비교 페이지
         post-count.tsx    # useEffect + fetch
         post-search.tsx   # SWR
         post-search-query.tsx  # TanStack Query
     api/
       todos/route.ts  # REST API 예시
-      posts/route.ts  # 검색 API (?q=)
+      posts/route.ts  # 검색 API (?q=) / 커서 페이지 API (?cursor=&limit=)
       uploads/[name]/route.ts  # 업로드 이미지 파일 응답
   components/
     ui/             # shadcn/ui 컴포넌트

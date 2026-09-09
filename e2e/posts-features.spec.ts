@@ -96,3 +96,23 @@ test("외부 API + use(): 릴리스 페이지가 스트리밍으로 채워진다
   // 네트워크 상황에 따라 목록 또는 에러 UI 중 하나가 온다. 둘 중 하나는 반드시 렌더링되어야 한다.
   await expect(page.getByText(/캐시 생성:|문제가 발생했습니다/)).toBeVisible({ timeout: 15000 });
 });
+
+test("무한 스크롤: 끝에 닿으면 다음 글을 불러오고, 다 읽으면 안내가 뜬다", async ({ page }) => {
+  await page.goto("/posts/feed");
+  const links = page.locator("ul a[href^='/posts/']");
+  await expect(links).toHaveCount(5); // 서버가 렌더링한 첫 페이지 (시드 6개 중 5개)
+
+  const nextPage = page.waitForResponse((r) => r.url().includes("/api/posts?") && r.url().includes("cursor="));
+  await page.locator("div[aria-hidden].h-1").scrollIntoViewIfNeeded(); // sentinel 을 화면에 넣는다
+  await nextPage;
+  // 앞선 테스트가 남긴 글이 있을 수 있으므로 정확한 개수 대신 "늘어났다" 와 "끝 안내" 를 본다
+  await expect.poll(async () => links.count()).toBeGreaterThan(5);
+  for (let i = 0; i < 5 && !(await page.getByText(/더 이상 글이 없습니다/).isVisible()); i++) {
+    await page.locator("div[aria-hidden].h-1").scrollIntoViewIfNeeded();
+    await page.waitForTimeout(700);
+  }
+  await expect(page.getByText(/더 이상 글이 없습니다/)).toBeVisible();
+  // 이어 붙인 목록에 중복 id 가 없다 (커서 방식)
+  const hrefs = await links.evaluateAll((as) => as.map((a) => a.getAttribute("href")));
+  expect(new Set(hrefs).size).toBe(hrefs.length);
+});

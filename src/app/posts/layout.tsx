@@ -1,27 +1,34 @@
 // /posts 아래 모든 페이지가 공유하는 중첩 레이아웃.
 // 페이지를 이동해도 이 부분은 다시 렌더링되지 않고 유지된다.
+// TanStack Query Provider 도 여기서 적용한다 (/posts/client 와 /posts/feed 가 함께 쓴다).
 import Link from "next/link";
 import { Separator } from "@/components/ui/separator";
+import { QueryProviders } from "./providers";
 
 export default function PostsLayout({ children }: LayoutProps<"/posts">) {
   return (
-    <div className="mx-auto w-full max-w-2xl p-8">
-      <nav className="flex items-center gap-4 text-sm">
-        <Link href="/" className="text-muted-foreground hover:underline">
-          홈
-        </Link>
-        <Link href="/posts" className="font-medium hover:underline">
-          글 목록
-        </Link>
-        <Link href="/posts/client" className="font-medium hover:underline">
-          클라이언트 검색
-        </Link>
-        <Link href="/posts/releases" className="font-medium hover:underline">
-          외부 API
-        </Link>
-      </nav>
-      <Separator className="my-4" />
-      {children}
-    </div>
+    <QueryProviders>
+      <div className="mx-auto w-full max-w-2xl p-8">
+        <nav className="flex flex-wrap items-center gap-4 text-sm">
+          <Link href="/" className="text-muted-foreground hover:underline">
+            홈
+          </Link>
+          <Link href="/posts" className="font-medium hover:underline">
+            글 목록
+          </Link>
+          <Link href="/posts/feed" className="font-medium hover:underline">
+            무한 스크롤
+          </Link>
+          <Link href="/posts/client" className="font-medium hover:underline">
+            클라이언트 검색
+          </Link>
+          <Link href="/posts/releases" className="font-medium hover:underline">
+            외부 API
+          </Link>
+        </nav>
+        <Separator className="my-4" />
+        {children}
+      </div>
+    </QueryProviders>
   );
 }

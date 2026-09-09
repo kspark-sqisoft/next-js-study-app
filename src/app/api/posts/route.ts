@@ -1,24 +1,43 @@
-// GET /api/posts?q=검색어
-// 클라이언트 사이드 페칭(/posts/client) 데모에서 SWR 과 fetch 가 호출하는 REST API.
+// GET /api/posts?q=검색어            → 검색 결과 전체 (클라이언트 페칭 데모: SWR / TanStack Query / fetch)
+// GET /api/posts?cursor=<id>&limit=5 → 커서 기반 페이지 (무한 스크롤 데모). nextCursor 가 null 이면 끝
 // request 의 쿼리스트링을 읽으므로 항상 요청 시점에 실행된다 (캐시되지 않음).
 import { type NextRequest } from "next/server";
-import { countPosts, searchPosts } from "@/lib/posts";
+import { countPosts, getPostsByCursor, searchPosts, type Post } from "@/lib/posts";
+
+const MAX_LIMIT = 20;
+
+function toItem({ id, title, authorName, imagePath, createdAt }: Post) {
+  return { id, title, authorName, imagePath, createdAt }; // 필요한 필드만 (본문 전체는 내려보내지 않는다)
+}
 
 export function GET(request: NextRequest) {
-  const q = request.nextUrl.searchParams.get("q")?.trim() ?? "";
+  const sp = request.nextUrl.searchParams;
+  const q = sp.get("q")?.trim() ?? "";
+  const limitParam = sp.get("limit");
 
   // 네트워크 지연을 흉내 내어 로딩 상태를 눈으로 볼 수 있게 한다 (학습용)
   return new Promise<Response>((resolve) => {
     setTimeout(() => {
+      if (limitParam !== null) {
+        // 커서 모드
+        const limit = Math.min(Math.max(1, Number(limitParam) || 5), MAX_LIMIT);
+        const cursorParam = sp.get("cursor");
+        const cursor = cursorParam ? Number(cursorParam) : null;
+        if (cursor !== null && !Number.isInteger(cursor)) {
+          resolve(Response.json({ error: "cursor 는 정수여야 합니다." }, { status: 400 }));
+          return;
+        }
+        const { posts, nextCursor } = getPostsByCursor(q, cursor, limit);
+        resolve(Response.json({ query: q, posts: posts.map(toItem), nextCursor }));
+        return;
+      }
+
+      // 검색 모드 (기존 동작)
       resolve(
         Response.json({
           query: q,
           total: countPosts(),
-          posts: searchPosts(q).map(({ id, title, createdAt }) => ({
-            id,
-            title,
-            createdAt,
-          })),
+          posts: searchPosts(q).map(({ id, title, createdAt }) => ({ id, title, createdAt })),
         }),
       );
     }, 500);

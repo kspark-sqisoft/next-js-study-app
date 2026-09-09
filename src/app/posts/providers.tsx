@@ -1,4 +1,4 @@
-// TanStack Query 의 Provider (클라이언트 컴포넌트).
+// TanStack Query 의 Provider (클라이언트 컴포넌트). posts/layout.tsx 에서 /posts 전체에 적용한다.
 // QueryClient 가 브라우저 캐시를 들고 있으므로, 이 Provider 아래의 컴포넌트들이 캐시를 공유한다.
 "use client";
 

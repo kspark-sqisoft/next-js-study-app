@@ -151,6 +151,38 @@ export async function getOtherPosts(excludeId: number): Promise<Post[]> {
   return rows.map(toPost);
 }
 
+/**
+ * 커서 기반 페이지네이션 (무한 스크롤용). Route Handler(/api/posts?cursor=&limit=) 에서 사용.
+ * offset 방식(getPostsPage)과 달리 "마지막으로 본 id 보다 작은 것 N개" 를 가져오므로,
+ * 스크롤 중에 새 글이 추가되어도 항목이 밀리거나 중복되지 않는다.
+ * limit+1 개를 조회해서 다음 페이지가 있는지 판단한다.
+ */
+export function getPostsByCursor(
+  query: string,
+  cursor: number | null,
+  limit: number,
+): { posts: Post[]; nextCursor: number | null } {
+  const conditions: string[] = [];
+  const params: (string | number)[] = [];
+  if (query) {
+    conditions.push("(p.title LIKE ? OR p.content LIKE ?)");
+    params.push(`%${query}%`, `%${query}%`);
+  }
+  if (cursor !== null) {
+    conditions.push("p.id < ?");
+    params.push(cursor);
+  }
+  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+
+  const rows = db
+    .prepare(`${SELECT_POST} ${where} ORDER BY p.id DESC LIMIT ?`)
+    .all(...params, limit + 1) as PostRow[];
+
+  const hasMore = rows.length > limit;
+  const page = rows.slice(0, limit).map(toPost);
+  return { posts: page, nextCursor: hasMore ? page[page.length - 1].id : null };
+}
+
 /** 검색. Route Handler(/api/posts) 에서 사용. */
 export function searchPosts(query: string): Post[] {
   const rows = db

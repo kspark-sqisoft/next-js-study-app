@@ -5,7 +5,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 vi.mock("next/cache", () => ({ cacheLife: vi.fn(), cacheTag: vi.fn(), updateTag: vi.fn(), revalidateTag: vi.fn() }));
 
 const { createUser } = await import("./users");
-const { countPosts, createPost, deletePost, getPost, getPostIds, getPosts, getPostsPage, PAGE_SIZE, searchPosts, updatePost } =
+const { countPosts, createPost, deletePost, getPost, getPostIds, getPosts, getPostsByCursor, getPostsPage, PAGE_SIZE, searchPosts, updatePost } =
   await import("./posts");
 
 let author: number;
@@ -74,5 +74,31 @@ describe("getPostsPage (검색 + 페이지네이션)", () => {
     expect(all.total).toBe(countPosts());
     const none = await getPostsPage("절대없는검색어xyz", 1);
     expect(none).toMatchObject({ total: 0, page: 1, totalPages: 1, posts: [] });
+  });
+});
+
+describe("getPostsByCursor (커서 페이지네이션)", () => {
+  it("커서보다 작은 id 를 limit 개 가져오고, 더 있으면 nextCursor 를 준다", async () => {
+    const u = createUser("c", "c@test.local", "hash").id;
+    const ids = Array.from({ length: 7 }, (_, i) => createPost(`커서 글 ${i + 1}`, "본문", u).id);
+
+    const first = getPostsByCursor("커서 글", null, 3);
+    expect(first.posts.map((p) => p.id)).toEqual(ids.slice(-3).reverse()); // 최신 3개
+    expect(first.nextCursor).toBe(first.posts[2].id);
+
+    const second = getPostsByCursor("커서 글", first.nextCursor, 3);
+    expect(second.posts.every((p) => p.id < first.nextCursor!)).toBe(true);
+    expect(second.posts).toHaveLength(3);
+
+    const third = getPostsByCursor("커서 글", second.nextCursor, 3);
+    expect(third.posts).toHaveLength(1);
+    expect(third.nextCursor).toBeNull(); // 끝
+  });
+
+  it("두 페이지를 이어 붙여도 중복이 없다", async () => {
+    const a = getPostsByCursor("", null, 4);
+    const b = getPostsByCursor("", a.nextCursor, 4);
+    const all = [...a.posts, ...b.posts].map((p) => p.id);
+    expect(new Set(all).size).toBe(all.length);
   });
 });

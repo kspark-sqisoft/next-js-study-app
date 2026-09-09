@@ -32,3 +32,21 @@ describe("GET /api/posts", () => {
     expect(body.posts).toHaveLength(2);
   });
 });
+
+describe("GET /api/posts?cursor=&limit= (커서 모드)", () => {
+  it("limit 개씩 돌려주고 마지막 페이지에서 nextCursor 가 null", async () => {
+    const page1 = await (await GET(new NextRequest("http://localhost/api/posts?limit=1"))).json();
+    expect(page1.posts).toHaveLength(1);
+    expect(page1.nextCursor).toBe(page1.posts[0].id);
+    expect(Object.keys(page1.posts[0]).sort()).toEqual(["authorName", "createdAt", "id", "imagePath", "title"]);
+
+    const page2 = await (await GET(new NextRequest(`http://localhost/api/posts?limit=1&cursor=${page1.nextCursor}`))).json();
+    expect(page2.posts[0].id).toBeLessThan(page1.posts[0].id);
+    expect(page2.nextCursor).toBeNull();
+  });
+
+  it("잘못된 cursor 는 400", async () => {
+    const res = await GET(new NextRequest("http://localhost/api/posts?limit=5&cursor=abc"));
+    expect(res.status).toBe(400);
+  });
+});
