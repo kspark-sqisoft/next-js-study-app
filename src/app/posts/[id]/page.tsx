@@ -1,0 +1,105 @@
+// /posts/[id] 글 상세. 동적 라우트 세그먼트.
+//
+// Cache Components 에서 동적 라우트를 다루는 규칙:
+// 1. generateStaticParams 가 돌려준 id 는 빌드 시 완전히 미리 렌더링된다.
+// 2. 그 외 id 는 첫 요청 때 렌더링되고, getPost 가 "use cache" 라 결과가 캐시된다 (ISR).
+// 3. params 는 Promise 이며, 페이지 최상위가 아니라 <Suspense> 안에서 await 해야
+//    "id 와 무관한 정적 셸" 을 만들 수 있다.
+import type { Metadata } from "next";
+import { Suspense } from "react";
+import { notFound } from "next/navigation";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { getPost, getPostIds } from "@/lib/posts";
+import { DeletePostButton } from "./delete-post-button";
+import { ErrorTrigger } from "./error-trigger";
+import { OtherPosts } from "./other-posts";
+
+// 빌드 시 미리 렌더링할 id. Cache Components 에서는 최소 1개를 돌려줘야 한다.
+// DB 가 비어 있으면(첫 clone 등) 자리표시자를 주고, 페이지에서 notFound() 로 처리한다.
+export async function generateStaticParams() {
+  const ids = getPostIds().slice(0, 2); // 최신 2개만 빌드 시 생성, 나머지는 첫 요청 때
+  return ids.length > 0 ? ids.map((id) => ({ id: String(id) })) : [{ id: "0" }];
+}
+
+// <title> 을 글 제목으로. params 를 읽으므로 요청 시점에 실행되고, 페이지와 함께 스트리밍된다.
+export async function generateMetadata({
+  params,
+}: PageProps<"/posts/[id]">): Promise<Metadata> {
+  const { id } = await params;
+  const post = await getPost(Number(id));
+  return { title: post ? `${post.title} | Next.js Study App` : "글 없음" };
+}
+
+// 페이지 자체는 params 를 await 하지 않는다. Suspense 안의 자식에게 넘긴다.
+export default function PostPage({ params }: PageProps<"/posts/[id]">) {
+  return (
+    <div className="space-y-8">
+      <Suspense fallback={<PostSkeleton />}>
+        <PostDetail params={params} />
+      </Suspense>
+    </div>
+  );
+}
+
+// 실제로 params 를 읽고 데이터를 가져오는 부분
+async function PostDetail({ params }: Pick<PageProps<"/posts/[id]">, "params">) {
+  const { id } = await params;
+  const numericId = Number(id);
+
+  // 숫자가 아니거나 없는 글이면 같은 세그먼트의 not-found.tsx 를 렌더링한다
+  if (!Number.isInteger(numericId)) notFound();
+  const post = await getPost(numericId);
+  if (!post) notFound();
+
+  return (
+    <>
+      <article>
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-semibold">{post.title}</h1>
+          <Badge variant="secondary">#{post.id}</Badge>
+        </div>
+        <p className="mt-1 text-xs text-muted-foreground">
+          작성 {post.createdAt} · 수정 {post.updatedAt}
+        </p>
+        {/* whitespace-pre-line: 저장된 줄바꿈을 그대로 표시 */}
+        <div className="mt-6 whitespace-pre-line text-sm leading-relaxed">
+          {post.content}
+        </div>
+      </article>
+
+      <div className="flex gap-2">
+        <DeletePostButton id={post.id} />
+        <ErrorTrigger />
+      </div>
+
+      {/* 스트리밍 데모: 이 부분만 1.5초 뒤에 채워진다. 위쪽 본문은 기다리지 않는다. */}
+      <section>
+        <h2 className="mb-2 font-semibold">다른 글</h2>
+        <Suspense fallback={<OtherPostsSkeleton />}>
+          <OtherPosts excludeId={post.id} />
+        </Suspense>
+      </section>
+    </>
+  );
+}
+
+function PostSkeleton() {
+  return (
+    <div className="space-y-4">
+      <Skeleton className="h-8 w-2/3" />
+      <Skeleton className="h-4 w-1/3" />
+      <Skeleton className="h-24 w-full" />
+    </div>
+  );
+}
+
+function OtherPostsSkeleton() {
+  return (
+    <div className="space-y-2">
+      <Skeleton className="h-5 w-1/2" />
+      <Skeleton className="h-5 w-2/5" />
+      <Skeleton className="h-5 w-3/5" />
+    </div>
+  );
+}

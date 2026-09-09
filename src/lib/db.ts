@@ -19,7 +19,9 @@ import path from "node:path";
 
 // DB 파일 경로. .env 의 DATABASE_PATH 를 읽는다 (Next.js 가 .env 파일을 자동 로드).
 // 상대 경로면 프로젝트 루트 기준으로 해석한다.
-const DB_PATH = path.resolve(
+// turbopackIgnore: 경로가 환경변수라서 정적으로 알 수 없다. 이 주석이 없으면 Turbopack 이
+// "어떤 파일이든 읽을 수 있다" 고 보고 프로젝트 전체를 서버 번들에 포함시키려 한다.
+const DB_PATH = path.resolve(/* turbopackIgnore: true */
   process.cwd(),
   process.env.DATABASE_PATH ?? "data/app.db", // .env 의 값이 없으면 기본 경로 사용
 );
@@ -31,6 +33,14 @@ const SCHEMA = `
     title      TEXT    NOT NULL,
     completed  INTEGER NOT NULL DEFAULT 0,   -- SQLite 는 boolean 이 없어 0/1 로 저장
     created_at TEXT    NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS posts (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    title      TEXT    NOT NULL,
+    content    TEXT    NOT NULL,
+    created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT    NOT NULL DEFAULT (datetime('now'))
   );
 `;
 

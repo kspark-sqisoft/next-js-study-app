@@ -10,7 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import Link from "next/link";
-import { ListTodoIcon } from "lucide-react";
+import { ListTodoIcon, NewspaperIcon } from "lucide-react";
 
 export default function Home() {
   return (
@@ -37,8 +37,10 @@ export default function Home() {
             <ListTodoIcon data-icon="inline-start" />
             할 일 관리
           </Button>
-          <Button variant="outline">Outline</Button>
-          <Button variant="ghost">Ghost</Button>
+          <Button variant="outline" nativeButton={false} render={<Link href="/posts" />}>
+            <NewspaperIcon data-icon="inline-start" />
+            글 (캐시 / 스트리밍)
+          </Button>
         </CardFooter>
       </Card>
     </main>
