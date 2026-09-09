@@ -47,3 +47,7 @@ next-env.d.ts
 # sqlite (학습용 로컬 DB)
 /data/*.db
 /data/*.db-*
+
+# playwright
+/test-results/
+/playwright-report/

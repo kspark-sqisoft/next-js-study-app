@@ -12,6 +12,7 @@ Next.js 16 (App Router) 학습용 프로젝트. SQLite 를 붙인 작은 앱 두
 - SWR, TanStack Query (클라이언트 사이드 페칭 비교용)
 - Zod (폼 검증)
 - jose (세션 JWT 서명). 비밀번호 해시는 Node 내장 crypto.scrypt
+- Vitest + React Testing Library (단위/컴포넌트 테스트), Playwright (E2E)
 - ESLint
 
 ## 시작하기
@@ -31,6 +32,8 @@ npm run dev            # http://localhost:3000
 npm run build          # 프로덕션 빌드. 라우트별 렌더링 방식(○ ◐ ƒ)이 출력된다
 npm run start          # 빌드 결과 실행
 npm run lint
+npm test               # 단위/컴포넌트 테스트 (Vitest)
+npm run test:e2e       # 브라우저 E2E 테스트 (Playwright)
 npm run db:init        # DB 파일/테이블만 생성 (앱 첫 실행 시 자동으로도 됨)
 npm run db:seed -- --reset   # 샘플 데이터로 초기화
 ```
@@ -125,6 +128,7 @@ Next.js 16 에서는 ISR 을 별도 설정이 아니라 `"use cache"` + `cacheLi
 | 15 | 인가: DAL, 작성자만 수정/삭제, proxy | `src/lib/dal.ts`, `src/app/posts/actions.ts`, `src/proxy.ts` |
 | 16 | Cache Components 에서 세션 다루기 | `src/app/layout.tsx`, `src/app/posts/[id]/page.tsx` |
 | 17 | 2단 댓글: 트리 조립, CASCADE, 태그별 캐시 | `src/lib/comments.ts`, `src/app/posts/[id]/comments-section.tsx` |
+| 18 | 테스트: 단위 · 컴포넌트 · Route Handler · E2E | `src/**/*.test.ts(x)`, `e2e/`, 아래 Part 4 |
 
 ---
 
@@ -342,6 +346,83 @@ Zod 쪽 핵심 코드 흐름 (`createPostAction`):
 
 ---
 
+## Part 4. 테스트
+
+공식 문서(Testing 가이드)가 제시하는 조합을 그대로 썼다.
+
+| 종류 | 도구 | 대상 | 실행 |
+| --- | --- | --- | --- |
+| 단위 (Unit) | Vitest | 순수 함수: 비밀번호 해시, Zod 스키마, 세션 | `npm test` |
+| 통합 (Integration) | Vitest + 실제 SQLite(임시 파일) | 데이터 접근 함수, Route Handler | `npm test` |
+| 컴포넌트 (Component) | Vitest + React Testing Library + jsdom | 클라이언트 컴포넌트의 렌더링과 상호작용 | `npm test` |
+| E2E | Playwright + 시스템 Chrome | 실제 브라우저에서 사용자 흐름 전체 | `npm run test:e2e` |
+
+### 4-1. 무엇을 어디서 테스트하나
+
+공식 문서의 핵심 주의 사항: **async 서버 컴포넌트는 단위 테스트 도구가 지원하지 않는다.** 그래서 이 프로젝트에서는 층에 따라 도구를 나눈다.
+
+| 코드 | 방법 | 이유 |
+| --- | --- | --- |
+| `src/lib/password.ts`, `src/lib/schemas/*` | 단위 테스트 | 외부 의존성이 없는 순수 함수. 가장 빠르고 쉽다 |
+| `src/lib/session.ts` | 단위 테스트 + `next/headers` mock | `cookies()` 는 실제 요청이 있어야 동작하므로 가짜로 바꾼다 |
+| `src/lib/posts.ts`, `comments.ts` | 통합 테스트 (임시 SQLite) | SQL 이 실제로 맞는지, CASCADE 가 동작하는지는 진짜 DB 로 봐야 한다 |
+| `src/app/api/posts/route.ts` | 통합 테스트 | Route Handler 는 `(Request) => Response` 함수라 서버 없이 직접 호출할 수 있다 |
+| `post-form.tsx`, `todo-item.tsx` | 컴포넌트 테스트 | 클라이언트 컴포넌트. Server Action 은 props 나 `vi.mock` 으로 가짜를 넣는다 |
+| `page.tsx` (async 서버 컴포넌트), Server Action, `loading/error/not-found`, 스트리밍, 캐시 | **E2E** | 단위 도구로는 실행할 수 없거나, 실제 서버가 있어야 의미가 있다 |
+
+### 4-2. Vitest 설정 (`vitest.config.mts`, `src/test/`)
+
+- `environment: "jsdom"` 이 기본. DOM 이 필요 없는 파일은 맨 위에 `// @vitest-environment node` 를 적는다. 더 빠르고, `jose` 처럼 Web Crypto 를 쓰는 코드는 jsdom 의 `Uint8Array` 와 호환되지 않아 node 환경이 필요하다.
+- `server-only` 패키지는 alias 로 빈 모듈(`src/test/server-only.ts`)로 바꿔치기한다. 테스트는 Node 에서 돌기 때문이다.
+- `src/test/setup.ts` 가 테스트 파일마다 실행되어 (1) `DATABASE_PATH` 를 임시 파일로 바꾸고 (2) 테스트용 `SESSION_SECRET` 을 넣고 (3) jest-dom matcher 를 등록하고 (4) 렌더링한 DOM 을 테스트마다 정리한다. **개발 DB(data/app.db)는 절대 건드리지 않는다.**
+
+### 4-3. Next.js 에 묶인 코드를 mock 하는 법
+
+테스트 파일에서 자주 쓰는 패턴 세 가지. 각각 해당 테스트 파일에 주석으로 설명이 있다.
+
+| 상황 | 방법 | 예 |
+| --- | --- | --- |
+| `cookies()` 등 요청 API | `vi.mock("next/headers", ...)` 로 메모리 저장소를 흉내 | `src/lib/session.test.ts` |
+| `"use cache"` 안의 `cacheLife`, `cacheTag` | `vi.mock("next/cache", ...)` 로 no-op | `src/lib/posts.test.ts`, `comments.test.ts` |
+| 클라이언트 컴포넌트가 import 한 Server Action | `vi.mock("./actions", ...)` 로 호출 여부만 검사 | `src/app/todos/todo-item.test.tsx` |
+| 액션을 props 로 받는 컴포넌트 | 가짜 액션 함수를 그냥 넘긴다 (mock 불필요) | `src/app/posts/post-form.test.tsx` |
+
+`vi.mock` 은 파일 맨 위로 끌어올려지므로(호이스팅), 테스트 대상은 `await import()` 로 그 뒤에 불러오는 것이 안전하다.
+
+### 4-4. Playwright E2E (`playwright.config.ts`, `e2e/`)
+
+공식 문서 권장대로 **프로덕션 빌드** 를 대상으로 한다. `webServer` 설정이 아래를 자동으로 수행한다.
+
+1. `DATABASE_PATH=data/e2e.db` 로 E2E 전용 DB 를 샘플 데이터로 초기화 (`db:seed -- --reset`)
+2. `npm run build` → `npm run start -- -p 3100`
+3. 서버가 응답하면 테스트 시작, 끝나면 서버 종료
+
+개발 서버(3000)나 개발 DB 와 분리되어 있어 언제 돌려도 안전하다. 처음 실행은 빌드 때문에 1분 정도 걸린다.
+
+| 파일 | 내용 |
+| --- | --- |
+| `e2e/rendering.spec.ts` | 캐시 시각이 새로고침 후에도 같은지(ISR), updateTag 로 바뀌는지, 스트리밍 영역이 나중에 채워지는지, not-found / error.tsx, SWR 검색이 API 를 호출하는지 |
+| `e2e/auth-posts-comments.spec.ts` | 가입(검증 실패→성공) → 글 작성/수정 → 댓글/답글 → 게스트로 권한 확인 → 로그인 실패/로그아웃 → 글 삭제. `test.describe.serial` 로 순서를 보장한다 |
+
+브라우저는 시스템에 설치된 Chrome 을 쓴다 (`channel: "chrome"`). 없으면 `npx playwright install chromium` 을 실행하고 설정에서 `channel` 줄을 지운다.
+
+유용한 명령:
+
+```bash
+npx playwright test --ui            # 브라우저 UI 로 단계별 실행
+npx playwright test --headed        # 실제 창을 띄워서 실행
+npx playwright show-trace test-results/<폴더>/trace.zip   # 실패한 테스트 재생
+```
+
+### 4-5. 테스트를 쓸 때 배운 것
+
+- **셀렉터는 역할(role)로.** shadcn `Button` 을 `render={<Link/>}` 로 링크처럼 써도 role 은 `button` 이다. `getByRole("button", { name: "수정" })` 로 찾아야 한다.
+- **헤더의 로그아웃도 submit 버튼이다.** `button[type=submit]` 처럼 넓게 잡으면 엉뚱한 버튼을 누른다. `form` 범위를 먼저 좁힌다.
+- **Server Action 은 브라우저에서만 검증할 수 있다.** curl 로 GET 응답을 확인하는 것으로는 폼 제출이 되는지 알 수 없다. 그래서 E2E 가 필요하다.
+- **테스트 DB 는 반드시 분리한다.** 단위 테스트는 임시 파일, E2E 는 `data/e2e.db`.
+
+---
+
 ## 빌드 결과 읽는 법
 
 `npm run build` 마지막에 출력되는 표:
@@ -395,12 +476,16 @@ npx shadcn@latest add <component>   # 예: npx shadcn@latest add table
 
 ```
 .env.example        # 환경변수 템플릿 (DATABASE_PATH, SESSION_SECRET)
+vitest.config.mts   # 단위/컴포넌트 테스트 설정
+playwright.config.ts # E2E 설정 (빌드 → 3100 포트 → data/e2e.db)
+e2e/                # Playwright 테스트
 next.config.ts      # cacheComponents: true
 data/               # SQLite 파일 위치 (git 제외)
 scripts/
   init-db.mts       # DB 파일 / 테이블 생성
   seed-db.mts       # 샘플 데이터 삽입
 src/
+  test/             # Vitest setup (임시 DB, 환경변수, jest-dom, cleanup)
   proxy.ts          # 요청 전 낙관적 리다이렉트 (인증 보조)
   app/
     layout.tsx      # 루트 레이아웃 (헤더 + Suspense 안의 로그인 상태)
@@ -449,6 +534,7 @@ src/
   lib/
     schema.ts       # 테이블 정의 + 수동 마이그레이션 (앱과 스크립트가 공유)
     schemas/        # Zod 검증 스키마 (post, auth, comment)
+    *.test.ts       # 각 모듈 옆에 두는 테스트 (colocated)
     password.ts     # scrypt 해시 / 검증
     session.ts      # JWT 세션 쿠키 생성 / 검증 / 삭제
     dal.ts          # getCurrentUser(), requireUser()
