@@ -431,7 +431,7 @@ Next.js 16 에서는 ISR 을 별도 설정이 아니라 `"use cache"` + `cacheLi
 | --- | --- | --- |
 | 0 | 렌더링 방식 개념 (SSG · SSR · CSR · ISR), 캐싱, hydration | 위의 "왕초보를 위한 개념 잡기" 와 "렌더링 방식 개념" |
 | 1 | 프로젝트 구조, 레이아웃, 페이지, 정적 렌더링 | `src/app/layout.tsx`, `src/app/page.tsx` |
-| 2 | SQLite 연결과 데이터 접근 계층 | `src/lib/db.ts`, `src/lib/todos.ts` |
+| 2 | SQLite 연결과 데이터 접근 계층 (이 브랜치는 Prisma) | `src/lib/prisma.ts`, `src/lib/todos.ts`, `prisma/schema.prisma` |
 | 3 | 서버 컴포넌트 데이터 조회 (SSR) | `src/app/todos/page.tsx` |
 | 4 | Server Action 으로 데이터 변경 | `src/app/todos/actions.ts` |
 | 5 | 클라이언트 컴포넌트와 React 19 훅 | `src/app/todos/*.tsx` |
@@ -525,11 +525,11 @@ const rows = db.prepare("SELECT * FROM todos").all();
 
 - `db.ts`: SQLite 연결 하나를 앱 전체에서 공유. 개발 모드 HMR 로 모듈이 다시 로드돼도 연결이 중복 생성되지 않도록 `globalThis` 에 캐시한다. 맨 위의 `import "server-only"` 는 클라이언트 컴포넌트에서 실수로 import 하면 빌드 에러를 내는 안전장치.
 - `todos.ts`: todos 에 대한 SQL 은 이 파일에만 둔다 (화면, `/api/todos`, `/api/v1/todos` 모두 여기 함수를 쓴다). DB 행(snake_case, 0/1) 을 앱 타입(camelCase, boolean) 으로 변환하는 `toTodo` 패턴.
-- 환경 변수: DB 경로는 `.env` 의 `DATABASE_PATH`. Next.js 가 `.env` 를 자동 로드하고, `scripts/` 는 `node --env-file-if-exists=.env` 로 직접 읽는다 (`package.json` 의 `db:init`, `db:seed`).
+- 환경 변수: DB 경로는 `.env` 의 `DATABASE_URL`(`file:./data/app.db`). Next.js 가 `.env` 를 자동 로드하고, Prisma CLI 는 `prisma.config.ts` 의 `process.loadEnvFile(".env")` 로 읽는다.
 
 #### 최초 DB 연결은 어디서 일어나나
 
-명시적인 `connect()` 호출이 없다. `src/lib/db.ts` 파일 맨 아래의 한 줄이 **모듈이 처음 import 될 때** 실행되는 구조다.
+명시적인 `connect()` 호출이 없다. `src/lib/prisma.ts` 파일 맨 아래의 한 줄이 **모듈이 처음 import 될 때** 실행되는 구조다. (아래 흐름은 main 브랜치의 `db.ts` 기준이며, 이 브랜치에서는 `db.ts` → `prisma.ts`, `openDatabase()` → `createPrismaClient()`, `new DatabaseSync` → `new PrismaClient({ adapter })` 로 읽으면 된다. 테이블 생성(`ensureSchema`)은 연결 시점이 아니라 `npm run db:migrate` 가 미리 한다.)
 
 ```
 1. 브라우저 → GET /todos
@@ -556,7 +556,7 @@ const rows = db.prepare("SELECT * FROM todos").all();
 | `npm run dev` | 서버가 뜰 때가 아니라 DB 를 쓰는 라우트에 **첫 요청** 이 왔을 때. 홈(`/`)만 열면 연결이 생기지 않는다 |
 | `npm run build` | 빌드 중 `generateStaticParams` 나 프리렌더가 `posts.ts` 를 로드할 때. 그래서 빌드 시점에 `data/app.db` 가 없으면 파일이 생성된다 |
 | `npm run start` | 빌드 결과에서 첫 요청 때 |
-| `npm run db:init`, `db:seed` | `db.ts` 를 쓰지 않는다. `scripts/*.mts` 가 직접 `new DatabaseSync` 를 열고 `ensureSchema` 만 공유한다 |
+| `npm run db:migrate`, `db:seed` | `prisma.ts` 를 쓰지 않는다. Prisma CLI 와 `prisma/seed.ts` 가 각자 클라이언트를 만든다 |
 | Vitest | `src/test/setup.ts` 가 `DATABASE_PATH` 를 임시 파일로 바꾼 뒤, 테스트 파일이 `db.ts` 를 import 하는 순간 |
 
 **개발 모드에서 두 번 열리지 않는 장치**: 파일을 저장할 때마다 HMR 이 모듈을 다시 평가하는데, 그때마다 `openDatabase()` 가 실행되면 연결이 계속 쌓인다. 그래서 만든 연결을 `globalThis.__db` 에 넣어 두고 다음 평가 때는 `??` 왼쪽에서 걸려 재사용한다. 프로덕션에는 HMR 이 없어 이 캐시를 쓰지 않는다.
@@ -926,7 +926,7 @@ TanStack Query 의 `QueryClientProvider` 는 이 페이지와 `/client-fetch` �
 - 최상위 댓글을 지우면 답글도 함께 지워진다. `ON DELETE CASCADE` 와 `PRAGMA foreign_keys = ON` 이 그 역할을 한다. 글을 지우면 댓글 전체가 같이 지워지는 것도 같은 원리.
 - 댓글 목록은 글마다 다른 태그(`post-3-comments`)로 캐시된다. 댓글을 쓰면 그 글의 태그만 무효화되고 다른 글의 캐시는 그대로다.
 
-### 3-6. 스키마 변경을 직접 관리하기 (`src/lib/schema.ts`)
+### 3-6. 스키마 변경을 직접 관리하기 (main 은 `src/lib/schema.ts`, 이 브랜치는 `prisma/schema.prisma` + 마이그레이션)
 
 인증을 붙이면서 `posts` 에 `author_id` 컬럼이 추가됐다. `CREATE TABLE IF NOT EXISTS` 는 이미 있는 테이블을 건드리지 않으므로, `ensureSchema()` 가 `PRAGMA table_info` 로 컬럼을 확인하고 없으면 `ALTER TABLE` 로 추가한다. Prisma 나 Drizzle 의 마이그레이션이 자동으로 해 주는 일을 손으로 한 것이다. 스키마 정의를 앱과 스크립트가 공유하도록 이 파일 하나에 모았다.
 
@@ -1765,14 +1765,17 @@ DB 파일(`data/*.db`)은 git 에 올리지 않는다. 대신 스키마와 시�
 
 | 명령 | 동작 |
 | --- | --- |
-| `npm run db:init` | DB 파일과 테이블 생성. 이미 있으면 아무것도 하지 않음 |
+| `npm run db:migrate` | 마이그레이션 적용(테이블 생성). 이미 적용된 것은 건너뜀 |
+| `npm run db:migrate:dev` | 스키마를 바꾼 뒤 새 마이그레이션 생성 + 적용 |
+| `npm run db:reset` | DB 삭제 + 마이그레이션 + 시드 (직접 터미널에서 실행. AI 도구가 실행하면 Prisma 가 확인을 요구한다) |
+| `npm run db:studio` | 브라우저에서 테이블을 보고 편집하는 Prisma Studio |
 | `npm run db:seed` | 비어 있는 테이블에만 샘플 데이터 삽입 |
 | `npm run db:seed -- --reset` | 모든 테이블을 비우고 샘플 데이터로 다시 채움 (id 도 1부터) |
 
-테이블은 `users`, `todos`, `posts`, `comments`, `api_keys` 다 (정의는 `src/lib/schema.ts`).
+테이블은 `users`, `todos`, `posts`, `comments`, `api_keys` 다 (정의는 `prisma/schema.prisma`, 이력은 `prisma/migrations/`).
 `api_keys` 는 공개 API 용이며, 키 원문은 저장하지 않고 SHA-256 해시만 넣는다 (Part 5-4).
 
-샘플 데이터는 `scripts/seed-db.mts` 의 `SEED_TODOS`, `SEED_POSTS` 배열을 수정하면 된다.
+샘플 데이터는 `prisma/seed.ts` 의 `SEED_TODOS`, `SEED_POSTS` 배열을 수정하면 된다.
 완전히 초기 상태로 돌리려면 `data/app.db`, `data/app.db-wal`, `data/app.db-shm` 을 지우고 다시 실행한다.
 
 ## shadcn/ui 컴포넌트 추가
@@ -1782,7 +1785,7 @@ npx shadcn@latest add <component>   # 예: npx shadcn@latest add table
 ```
 
 설치된 컴포넌트는 `src/components/ui/` 에 생성된다.
-현재 포함: button, card, input, label, badge, separator, dialog, dropdown-menu, sonner, checkbox, textarea, skeleton
+현재 포함: button, card, input, label, badge, separator, dialog, sonner, checkbox, textarea, skeleton
 
 ## 구조
 
@@ -1794,9 +1797,11 @@ e2e/                # Playwright 테스트
 next.config.ts      # cacheComponents: true
 data/               # SQLite 파일과 업로드 이미지 (git 제외)
 docs/NEXT_STEPS.md  # 이후에 추가할 학습 항목
-scripts/
-  init-db.mts       # DB 파일 / 테이블 생성
-  seed-db.mts       # 샘플 데이터 삽입
+prisma/
+  schema.prisma     # 테이블 정의 (단일 출처)
+  migrations/       # 마이그레이션 SQL 이력
+  seed.ts           # 샘플 데이터 삽입
+prisma.config.ts    # Prisma CLI 설정
 src/
   test/             # Vitest setup (임시 DB, 환경변수, jest-dom, cleanup)
   proxy.ts          # 요청 전 낙관적 리다이렉트 (인증 보조)
@@ -1874,7 +1879,8 @@ src/
     query-providers.tsx  # QueryClientProvider + DevTools
     user-menu.tsx   # 헤더 로그인 상태 (서버 컴포넌트)
   lib/
-    schema.ts       # 테이블 정의 + 수동 마이그레이션 (앱과 스크립트가 공유)
+    prisma.ts       # PrismaClient 싱글턴 (better-sqlite3 어댑터)
+    sql-now.ts      # datetime('now') 형식 문자열
     schemas/        # Zod 검증 스키마 (post, auth, comment, api)
     api/            # 공개 API 인프라 (Part 5)
       route.ts      # apiRoute() 래퍼: 인증 + 레이트 리밋 + 예외 → JSON
@@ -1892,7 +1898,6 @@ src/
     comments.ts     # comments 접근 함수 (2단 트리, 태그별 캐시)
     github.ts       # 외부 API fetch ("use cache")
     uploads.ts, uploads-validate.ts  # 이미지 저장/삭제/읽기, 검증 규칙
-    db.ts           # SQLite 연결 (앱 전체에서 하나 공유)
     todos.ts        # todos 접근 함수 (connection() 으로 SSR)
     posts.ts        # posts 접근 함수 (일부 "use cache")
     utils.ts        # cn() 헬퍼
