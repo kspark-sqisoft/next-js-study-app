@@ -25,7 +25,9 @@ describe("<TodoItem />", () => {
 
   it("체크박스를 누르면 toggleTodoAction 을 id 와 함께 호출한다", async () => {
     render(<TodoItem todo={todo} />);
-    await userEvent.click(screen.getByRole("checkbox"));
+    // 체크박스가 둘이다: 선택용(native input, aria-label="선택") 과 완료용(shadcn Checkbox). 완료용만 고른다
+    const completedBox = screen.getAllByRole("checkbox").find((el) => el.getAttribute("aria-label") !== "선택")!;
+    await userEvent.click(completedBox);
     expect(actions.toggleTodoAction).toHaveBeenCalledWith(1, true);
   });
 

@@ -117,6 +117,24 @@ export function deleteTodo(id: number): void {
   db.prepare("DELETE FROM todos WHERE id = ?").run(id);
 }
 
+// 여러 건의 완료 여부 일괄 변경. SQL 의 IN (?, ?, ...) 자리표시자를 id 개수만큼 만든다.
+export function setTodosCompleted(ids: number[], completed: boolean): number {
+  if (ids.length === 0) return 0;
+  const placeholders = ids.map(() => "?").join(", ");
+  const result = db
+    .prepare(`UPDATE todos SET completed = ? WHERE id IN (${placeholders})`)
+    .run(completed ? 1 : 0, ...ids);
+  return Number(result.changes);
+}
+
+// 여러 건 일괄 삭제
+export function deleteTodos(ids: number[]): number {
+  if (ids.length === 0) return 0;
+  const placeholders = ids.map(() => "?").join(", ");
+  const result = db.prepare(`DELETE FROM todos WHERE id IN (${placeholders})`).run(...ids);
+  return Number(result.changes);
+}
+
 // 완료된 항목 일괄 삭제. 삭제된 행 수를 반환한다.
 export function deleteCompletedTodos(): number {
   const result = db.prepare("DELETE FROM todos WHERE completed = 1").run();

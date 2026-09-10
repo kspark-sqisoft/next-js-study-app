@@ -13,6 +13,7 @@ Next.js 16 (App Router) 학습용 프로젝트. SQLite 를 붙인 작은 앱 두
 - Zod (폼 검증)
 - jose (세션 JWT 서명). 비밀번호 해시는 Node 내장 crypto.scrypt
 - 공개 REST API `/api/v1` (Bearer 인증, 레이트 리밋, OpenAPI 3.1 명세)
+- zustand (클라이언트 전역 상태)
 - Vitest + React Testing Library (단위/컴포넌트 테스트), Playwright (E2E)
 - ESLint
 
@@ -145,6 +146,8 @@ Next.js 16 에서는 ISR 을 별도 설정이 아니라 `"use cache"` + `cacheLi
 | 29 | 레이트 리밋과 CORS | `src/lib/api/rate-limit.ts`(5-6), `src/proxy.ts`(5-10) |
 | 30 | Route Handler 의 캐시 무효화 (`updateTag` 를 못 쓰는 이유) | `src/app/api/v1/posts/route.ts` |
 | 31 | OpenAPI 명세로 API 문서화 | `src/lib/api/openapi.ts`, `/api/v1/openapi.json` |
+| 32 | zustand 기본: 형제 컴포넌트가 공유하는 UI 상태 (todos 다중 선택) | `src/stores/todo-selection-store.ts`, Part 6 |
+| 33 | zustand persist: localStorage 영속과 SSR hydration (최근 본 글) | `src/stores/recently-viewed-store.ts`, Part 6 |
 
 이후에 볼 항목은 [docs/NEXT_STEPS.md](docs/NEXT_STEPS.md) 에 정리해 두었다.
 
@@ -392,7 +395,7 @@ GitHub API 에서 Next.js 릴리스 목록을 가져온다. 두 가지를 배운
 
 ### 2-12. `next/dynamic` 으로 브라우저 전용 컴포넌트 (`recently-viewed*.tsx`)
 
-`localStorage` 로 "최근 본 글" 을 기록하는 위젯. 렌더링 중에 `localStorage` 를 읽으므로 서버에서는 실행할 수 없다.
+"최근 본 글" 위젯. 데이터는 zustand persist 스토어(Part 6)에서 오는데, 그 값은 브라우저의 localStorage 에만 있어 서버 HTML 에는 그릴 것이 없다.
 
 - `dynamic(() => import("./recently-viewed"), { ssr: false, loading })` 로 감싸면 (1) 서버 HTML 에 포함되지 않고 (2) 별도 JS 청크로 분리되어 (3) hydration 뒤 브라우저에서 로드된다.
 - `ssr: false` 는 **클라이언트 컴포넌트 안에서만** 쓸 수 있다. 그래서 `recently-viewed-loader.tsx` 라는 얇은 `"use client"` 래퍼를 두고 서버 컴포넌트(`page.tsx`)는 그 래퍼를 쓴다.
@@ -590,6 +593,7 @@ TanStack Query 의 `QueryClientProvider` 는 이 페이지와 `/client-fetch` �
 | --- | --- |
 | `e2e/rendering.spec.ts` | 캐시 시각이 새로고침 후에도 같은지(ISR), updateTag 로 바뀌는지, 스트리밍 영역이 나중에 채워지는지, not-found / error.tsx, SWR 검색이 API 를 호출하는지 |
 | `e2e/routing.spec.ts` | 모달 열기/닫기/새로고침, template 재마운트, 리다이렉트 상태 코드 |
+| `e2e/zustand.spec.ts` | todos 다중 선택 일괄 처리, 최근 본 글 배지의 persist 복원과 서버 HTML 부재 |
 | `e2e/auth-posts-comments.spec.ts` | 가입(검증 실패→성공) → 글 작성/수정 → 댓글/답글 → 게스트로 권한 확인 → 로그인 실패/로그아웃 → 글 삭제. `test.describe.serial` 로 순서를 보장한다 |
 | `e2e/public-api.spec.ts` | 공개 API: OpenAPI 명세, CORS 프리플라이트, 토큰·API 키 흐름, API 로 쓴 글이 웹 화면에 반영되는지, 세션 쿠키가 거부되는지. 단위 테스트는 proxy 를 거치지 않으므로 이런 것은 E2E 로만 확인된다 |
 
@@ -1123,6 +1127,81 @@ Cache Components 에서 **Route Handler 도 페이지와 같은 규칙**을 따�
 
 ---
 
+## Part 6. 클라이언트 전역 상태 (zustand)
+
+App Router 에서 **서버 데이터(글, 할 일)는 서버 컴포넌트와 Server Action 이 다룬다.** zustand 같은 클라이언트 상태 라이브러리에 서버 데이터를 복사해 넣을 필요가 없다.
+zustand 의 자리는 **브라우저에만 있는 UI 상태를 여러 클라이언트 컴포넌트가 공유해야 할 때** 다. 이 프로젝트에는 그런 자리가 두 곳 있고, 각각 zustand 의 두 가지 핵심 패턴을 보여 준다.
+
+| 자리 | 상태 | 패턴 | 파일 |
+| --- | --- | --- | --- |
+| todos 다중 선택 | "어떤 id 를 골랐나" | 기본 스토어, 선택자, 형제 간 공유 | `src/stores/todo-selection-store.ts`, `src/app/todos/bulk-action-bar.tsx` |
+| 최근 본 글 | localStorage 에 남는 목록 | `persist` 미들웨어, SSR hydration | `src/stores/recently-viewed-store.ts`, `src/components/store-hydrator.tsx` |
+
+### 6-1. 기본형: todos 다중 선택과 일괄 처리
+
+`/todos` 에서 항목 왼쪽의 선택 체크박스를 누르면 상단 툴바에 "N개 선택됨" 과 완료 처리 · 미완료로 · 삭제 버튼이 나타난다. 버튼은 Server Action(`bulkSetCompletedAction`, `bulkDeleteAction`)으로 일괄 처리한다.
+
+**왜 zustand 인가.** 선택 상태를 보는 `<TodoItem/>` 들과 `<BulkActionBar/>` 는 서버 컴포넌트(`page.tsx`)가 나란히 렌더링하는 **형제 클라이언트 컴포넌트** 다. 그 사이에 공통 클라이언트 부모가 없다.
+- `useState` 를 부모로 올리려면 페이지 전체를 클라이언트 컴포넌트로 바꿔야 한다 (서버에서 DB 를 읽는 구조가 깨진다).
+- Context 를 쓰려면 Provider 래퍼(클라이언트 컴포넌트)가 필요하다.
+- 스토어는 둘 다 없이 형제끼리 상태를 공유한다. 컴포넌트 트리와 무관한 **모듈 단위** 상태이기 때문이다.
+
+**스토어 모양** (`todo-selection-store.ts`):
+
+```ts
+export const useTodoSelection = create<State>()((set) => ({
+  selectedIds: [],
+  toggle: (id) => set((s) => ({ selectedIds: s.selectedIds.includes(id) ? s.selectedIds.filter(x => x !== id) : [...s.selectedIds, id] })),
+  selectAll: (ids) => set({ selectedIds: [...ids] }),
+  clear: () => set({ selectedIds: [] }),
+}));
+```
+
+상태와 그것을 바꾸는 액션을 한 객체에 둔다. `set` 에 함수를 넘기면 이전 상태를 받아 바뀐 조각만 돌려준다.
+
+**선택자(selector)로 필요한 조각만 구독한다.** `TodoItem` 은 `useTodoSelection((s) => s.selectedIds.includes(todo.id))` 로 **자기 항목의 boolean 만** 구독한다. 다른 항목의 선택이 바뀌어도 이 값이 같으면 리렌더되지 않는다. 스토어 전체를 구독했다면 항목 하나를 고를 때마다 모든 항목이 다시 그려진다.
+배열이나 객체를 새로 만들어 돌려주는 선택자(`BulkActionBar` 의 `{ selectedIds, selectAll, clear }`)는 매번 다른 참조라 무한 리렌더가 나므로 `useShallow` 로 얕은 비교를 시킨다.
+
+**경계를 지킨다.** 스토어에는 선택된 id 만 있다. 할 일 목록 자체는 서버 컴포넌트가 DB 에서 읽어 props 로 준다. 일괄 처리 후 `revalidatePath("/todos")` 가 서버 데이터를 갱신하고, 스토어는 `clear()` 로 선택만 비운다. 서버에서 온 id 목록으로 `selectedIds` 를 걸러 삭제된 항목이 선택에 남지 않게 한다.
+
+**Server Action 은 클라이언트가 보낸 id 를 다시 검증한다.** 배열인지, 양의 정수인지, 100개 이하인지. 스토어 값도 결국 브라우저에서 온 입력이다.
+
+### 6-2. `persist` 미들웨어: 최근 본 글과 SSR hydration
+
+2-12 의 "최근 본 글" 위젯이 localStorage 를 직접 읽던 것을 persist 스토어로 옮겼다. 글 상세 위젯이 기록하고, 헤더의 "글" 링크 옆 배지가 같은 스토어에서 개수를 읽는다.
+
+```ts
+export const useRecentlyViewed = create<State>()(
+  persist(
+    (set) => ({ entries: [], hydrated: false, record: ..., setHydrated: ... }),
+    {
+      name: "recently-viewed-posts",            // localStorage 키
+      storage: createJSONStorage(() => localStorage),
+      partialize: (s) => ({ entries: s.entries }), // 저장할 필드만
+      skipHydration: true,                      // 자동 복원 끔
+      onRehydrateStorage: () => (state) => state?.setHydrated(),
+    },
+  ),
+);
+```
+
+**SSR 과 localStorage 의 불일치.** 서버에는 localStorage 가 없어 서버 HTML 은 "비어 있음" 으로 그려진다. 브라우저가 hydration 하면서 곧바로 localStorage 값을 쓰면 서버 HTML 과 달라 **hydration 불일치 에러** 가 난다. 해결 순서:
+1. `skipHydration: true` 로 자동 복원을 끈다. 첫 렌더링은 서버와 똑같이 빈 상태.
+2. 루트 레이아웃의 `<StoreHydrator/>` 가 `useEffect` 에서 `useRecentlyViewed.persist.rehydrate()` 를 호출한다. 마운트 후이므로 서버 HTML 과 충돌하지 않는다.
+3. 복원이 끝나면 `onRehydrateStorage` 가 `hydrated` 를 true 로 바꾸고, 그때부터 배지와 위젯이 실제 값을 그린다. 배지는 `hydrated` 전에는 0 이라 아무것도 그리지 않는다.
+4. 위젯은 `hydrated` 가 된 **뒤에** 현재 글을 기록한다. 먼저 기록하면 `rehydrate()` 가 덮어쓴다.
+
+E2E(`e2e/zustand.spec.ts`)가 "서버 HTML 에는 배지가 없다" 를 확인해 이 순서가 지켜지는지 감시한다.
+
+### 6-3. 주의점과 "언제 쓰지 말아야 하나"
+
+- **스토어는 모듈 싱글턴이다.** 서버에서 import 해 값을 넣으면 요청 간에 상태가 섞인다. `"use client"` 컴포넌트에서만 쓴다. 서버 데이터를 스토어 초기값으로 넣어야 할 때는 zustand 공식 Next.js 가이드의 "요청마다 스토어를 만드는 Provider" 패턴을 쓴다 (이 프로젝트에는 그럴 데이터가 없어 넣지 않았다).
+- **서버 데이터를 넣지 않는다.** 글 목록을 스토어에 복사하면 "어느 쪽이 진짜인가" 문제가 생기고 캐시 무효화와 어긋난다. 서버 데이터는 서버 컴포넌트 + Server Action + `updateTag` 로, 브라우저 쪽 캐시가 필요하면 SWR / TanStack Query 로.
+- **작으면 `useState` 로 충분하다.** 한 컴포넌트 안의 상태(`TodoItem` 의 `editing`)까지 스토어로 올리지 않는다. 형제 간 공유, 페이지 간 유지, localStorage 영속이 필요할 때 꺼낸다.
+- **테스트는 React 없이 된다.** `useTodoSelection.getState().toggle(1)` 처럼 스토어를 직접 조작하고 `getState()` 로 확인한다 (`src/stores/*.test.ts`). 모듈 싱글턴이라 테스트 사이에 초기화해야 한다.
+
+---
+
 ## 빌드 결과 읽는 법
 
 `npm run build` 마지막에 출력되는 표:
@@ -1207,7 +1286,8 @@ src/
     todos/
       page.tsx      # 목록 + 조회 (SSR, connection())
       loading.tsx   # Suspense 경계
-      actions.ts    # Server Actions (추가 / 토글 / 수정 / 삭제)
+      actions.ts    # Server Actions (추가 / 토글 / 수정 / 삭제 / 일괄 처리)
+      bulk-action-bar.tsx  # 선택 항목 일괄 처리 툴바 (zustand)
       *.tsx         # 클라이언트 컴포넌트 (useActionState, useOptimistic, useTransition)
     (demos)/        # 라우트 그룹 (URL 에 안 들어감). 인터셉팅 라우트와 충돌해 /posts 밖으로 옮긴 데모들
       layout.tsx    # 공용 네비게이션 + TanStack Query Provider
@@ -1253,8 +1333,13 @@ src/
         comments/[id]/route.ts               # 댓글 삭제
         todos/route.ts, todos/[id]/route.ts
         */*.test.ts   # 라우트 핸들러를 직접 호출하는 테스트
+  stores/           # zustand 스토어 (Part 6)
+    todo-selection-store.ts   # todos 다중 선택 (기본형)
+    recently-viewed-store.ts  # 최근 본 글 (persist + skipHydration)
   components/
     ui/             # shadcn/ui 컴포넌트
+    store-hydrator.tsx        # 마운트 후 persist 복원
+    recently-viewed-badge.tsx # 헤더 배지 (스토어 구독)
     modal.tsx       # 라우트 모달 껍데기 (router.back 으로 닫기)
     posts-nav.tsx   # /posts 와 (demos) 가 공유하는 네비게이션
     query-providers.tsx  # QueryClientProvider + DevTools

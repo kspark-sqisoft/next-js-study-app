@@ -7,7 +7,9 @@ import {
   createTodo,
   deleteCompletedTodos,
   deleteTodo,
+  deleteTodos,
   setTodoCompleted,
+  setTodosCompleted,
   updateTodoTitle,
 } from "@/lib/todos";
 
@@ -64,4 +66,33 @@ export async function clearCompletedAction() {
   const count = deleteCompletedTodos();
   revalidatePath("/todos");
   return count;
+}
+
+// ---------------------------------------------------------------------------
+// 일괄 처리 (zustand 선택 스토어와 짝을 이룬다)
+// 클라이언트가 고른 id 목록을 받는다. 클라이언트에서 온 값이므로 여기서 다시 검증한다.
+// ---------------------------------------------------------------------------
+
+const MAX_BULK = 100;
+
+function parseIds(ids: unknown): number[] | null {
+  if (!Array.isArray(ids) || ids.length === 0 || ids.length > MAX_BULK) return null;
+  if (!ids.every((id) => Number.isInteger(id) && id > 0)) return null;
+  return ids as number[];
+}
+
+export async function bulkSetCompletedAction(ids: number[], completed: boolean) {
+  const valid = parseIds(ids);
+  if (!valid) return { error: "선택한 항목이 올바르지 않습니다." };
+  const changed = setTodosCompleted(valid, completed);
+  revalidatePath("/todos");
+  return { changed };
+}
+
+export async function bulkDeleteAction(ids: number[]) {
+  const valid = parseIds(ids);
+  if (!valid) return { error: "선택한 항목이 올바르지 않습니다." };
+  const deleted = deleteTodos(valid);
+  revalidatePath("/todos");
+  return { deleted };
 }

@@ -5,6 +5,8 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css"; // Tailwind 및 전역 스타일
+import { RecentlyViewedBadge } from "@/components/recently-viewed-badge";
+import { StoreHydrator } from "@/components/store-hydrator";
 import { Toaster } from "@/components/ui/sonner";
 import { UserMenu } from "@/components/user-menu";
 
@@ -37,7 +39,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           <nav className="flex items-center gap-4 text-sm">
             <Link href="/" className="font-semibold">Next.js Study</Link>
             <Link href="/todos" className="hover:underline">할 일</Link>
-            <Link href="/posts" className="hover:underline">글</Link>
+            <Link href="/posts" className="hover:underline">
+              글<RecentlyViewedBadge />
+            </Link>
           </nav>
           {/* 세션을 읽는 부분만 Suspense 로 감싼다. 레이아웃 최상위에서 세션을 await 하면
               모든 페이지가 세션 확인을 기다리게 되므로 반드시 컴포넌트 안으로 밀어 넣는다. */}
@@ -48,6 +52,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         {children}
         {/* 토스트 알림 표시 영역. 어디서든 toast() 를 호출하면 여기에 뜬다. */}
         <Toaster />
+        {/* persist 스토어(최근 본 글)를 마운트 후 localStorage 에서 복원 */}
+        <StoreHydrator />
       </body>
     </html>
   );

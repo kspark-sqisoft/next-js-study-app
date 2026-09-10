@@ -29,7 +29,7 @@ README 의 학습 순서를 마친 뒤 이어서 볼 만한 주제들. 위쪽일
 - **점진적 향상 확인** — 브라우저 JS 를 끄고 todos 폼이 그대로 동작하는지 보기.
 - **react-hook-form + `@hookform/resolvers/zod`** — 같은 Zod 스키마를 브라우저에서도 써서 전송 전 검증. 서버 검증은 유지.
 - **`use()` + Context 로 Promise 공유** — 인증 가이드의 `UserProvider` 패턴.
-- **클라이언트 전역 상태** (Context, zustand) — 필요해지는 순간에.
+- **zustand 심화** — 서버 데이터를 초기값으로 받는 "요청마다 스토어 생성 Provider" 패턴, `subscribeWithSelector`, devtools 미들웨어.
 
 ## SEO와 메타데이터
 

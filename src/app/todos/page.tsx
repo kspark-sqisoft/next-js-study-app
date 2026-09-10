@@ -16,6 +16,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { getTodos } from "@/lib/todos";
 import { AddTodoForm } from "./add-todo-form";
+import { BulkActionBar } from "./bulk-action-bar";
 import { ClearCompletedButton } from "./clear-completed-button";
 import { TodoItem } from "./todo-item";
 
@@ -53,11 +54,15 @@ export default async function TodosPage() {
               아직 할 일이 없습니다. 위에서 추가해 보세요.
             </p>
           ) : (
+            <>
+            {/* zustand 선택 스토어를 공유하는 형제 컴포넌트들: 툴바와 각 항목 */}
+            <BulkActionBar allIds={todos.map((t) => t.id)} />
             <ul className="space-y-2">
               {todos.map((todo) => (
                 <TodoItem key={todo.id} todo={todo} />
               ))}
             </ul>
+            </>
           )}
         </CardContent>
 

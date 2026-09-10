@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import type { Todo } from "@/lib/todos";
+import { useTodoSelection } from "@/stores/todo-selection-store";
 import {
   deleteTodoAction,
   renameTodoAction,
@@ -26,6 +27,10 @@ export function TodoItem({ todo }: { todo: Todo }) {
   const [optimisticCompleted, setOptimisticCompleted] = useOptimistic(
     todo.completed,
   );
+  // zustand: 이 항목이 선택됐는지만 구독한다. 선택자가 boolean 을 돌려주므로 다른 항목의 선택이 바뀌어도
+  // 이 컴포넌트는 리렌더되지 않는다 (스토어 전체를 구독했다면 모든 항목이 매번 다시 그려진다).
+  const isSelected = useTodoSelection((s) => s.selectedIds.includes(todo.id));
+  const toggleSelected = useTodoSelection((s) => s.toggle);
 
   // 체크박스 클릭: 화면 먼저 갱신 → 서버에 저장
   function handleToggle(checked: boolean) {
@@ -63,8 +68,17 @@ export function TodoItem({ todo }: { todo: Todo }) {
       className={cn(
         "flex items-center gap-3 rounded-lg border px-3 py-2 transition-opacity",
         isPending && "opacity-60", // 서버 처리 중이면 흐리게
+        isSelected && "border-primary bg-primary/5", // 선택된 항목 강조
       )}
     >
+      {/* 일괄 처리용 선택 체크박스 (zustand). 오른쪽의 완료 체크박스(서버 상태)와는 별개다 */}
+      <input
+        type="checkbox"
+        checked={isSelected}
+        onChange={() => toggleSelected(todo.id)}
+        aria-label="선택"
+        className="accent-primary"
+      />
       <Checkbox
         id={checkboxId}
         checked={optimisticCompleted}
