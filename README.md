@@ -287,6 +287,36 @@ Next.js 16 의 캐싱 규칙은 단순하다.
 
 `src/lib/posts.ts` 를 보면 캐시되는 함수(`getPosts`, `getPost`) 와 안 되는 함수(`getOtherPosts`, `searchPosts`) 가 나뉘어 있다.
 
+#### "Cache Components" 는 컴포넌트 종류가 아니라 캐싱 모드의 이름이다
+
+이름 때문에 헷갈리기 쉬운데, **Cache Components 는 Next.js 16 의 캐싱 모드(기능) 이름** 이다. `next.config.ts` 의 `cacheComponents: true` 스위치 하나로 켜고 끈다.
+그래서 "Non Cache Components" 라는 컴포넌트가 따로 있는 것이 아니라, 반대편은 **이 기능을 끈 상태, 즉 Next.js 13~15 가 쓰던 이전 캐싱 모델** 이다. 공식 문서도 이전 모델을 "Caching without Cache Components (Previous Model)" 라고 부른다.
+이 문서에서 "Cache Components 에서의 추가 규칙" 이라고 쓴 곳은 모두 "이 프로젝트가 켠 모드에서만 적용되는 규칙" 이라는 뜻이다.
+
+| | 이전 모델 (`cacheComponents` 끔, 기본값) | Cache Components (`cacheComponents: true`, 이 프로젝트) |
+| --- | --- | --- |
+| 캐시 기본 태도 | 페이지 단위로 "가능하면 전부 캐시". 정적/동적이 **페이지 전체** 에 대해 결정됨 | 기본은 캐시 안 함. **함수·컴포넌트 단위** 로 `"use cache"` 를 붙인 것만 캐시 |
+| 캐시를 켜는 방법 | `fetch(url, { next: { revalidate, tags } })`, `export const revalidate = 60` 같은 라우트 세그먼트 설정 | `"use cache"` + `cacheLife()` + `cacheTag()` |
+| 동적으로 만드는 방법 | `export const dynamic = "force-dynamic"`, `cookies()` 사용 등 | `connection()`, `cookies()`, `searchParams` 등 요청 API 사용. 세그먼트 설정(`dynamic`, `revalidate`)은 쓰면 빌드 에러 |
+| 한 페이지 안의 혼합 | 어려움. 동적 부분이 하나라도 있으면 페이지 전체가 요청마다 렌더링 | 기본 동작. 정적 셸을 먼저 보내고 동적 부분만 스트리밍 (빌드 표의 `◐ Partial Prerender`) |
+| Suspense 요구 | 선택 사항 | **필수**. 캐시되지 않은 동적 데이터는 `<Suspense>` 안에 있어야 한다. 없으면 빌드 에러 |
+| 검증 | 없음. 의도치 않게 정적으로 굳거나 동적이 되어도 조용하다 | 개발 서버와 빌드가 "이 컴포넌트는 셸에 못 들어간다" 를 에러/인사이트로 지적 |
+| `Date.now()` 같은 값 | 빌드 시점 값이 그냥 박힌다 | 프리렌더 중 사용하면 에러. `io()` 나 `connection()` 뒤로 옮겨야 한다 |
+| ISR 표현 | `revalidate = 60` | `cacheLife("minutes")` |
+| 온디맨드 무효화 | `revalidatePath`, `revalidateTag` | 같은 것들 + `updateTag` (즉시 만료) |
+
+한 문장으로: 이전 모델은 **"페이지가 정적이냐 동적이냐"** 를 고르는 방식이고, Cache Components 는 **"페이지 안의 각 조각이 캐시되느냐 요청 시점이냐"** 를 고르는 방식이다.
+
+**이 프로젝트에서 직접 겪은 차이들** — 이전 모델이었다면 모두 에러 없이 조용히 지나갔을 것들이다.
+- `/api/todos` Route Handler 가 빌드 시 정적으로 굳어 `connection()` 을 넣어야 했다 (1-1).
+- 세션을 읽는 헤더를 `<Suspense>` 로 감싸야 했다 (3-4).
+- 무한 스크롤의 TanStack Query 가 내부에서 `Date.now()` 를 써서 `use(io())` 가 필요했다 (2-13).
+- 외부 API `fetch` 를 `next: { revalidate }` 옵션 대신 `"use cache"` 함수로 감쌌다 (2-10).
+
+대신 이전 모델이었다면 `/todos` 가 통째로 동적이 되거나, 세션 확인 때문에 홈 페이지 전체가 요청마다 렌더링되는 식으로 성능이 떨어졌을 것이다.
+
+**왜 이 프로젝트는 켰나.** Next.js 16 문서가 이 모델을 기본 방향으로 설명하고 이전 모델은 "Previous Model" 로 분류하기 때문이다. 차이를 체감하고 싶으면 `cacheComponents: true` 를 지우고 `npm run build` 를 해 보자. `"use cache"` 를 쓰는 코드들 때문에 그대로는 빌드가 안 되는데, 그 자체가 두 모델이 얼마나 다른지 보여 준다.
+
 ### 2-2. ISR (Incremental Static Regeneration)
 
 "정적으로 만들어 두고, 시간이 지나거나 이벤트가 생기면 다시 만든다."
