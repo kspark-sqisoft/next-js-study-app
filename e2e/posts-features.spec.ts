@@ -27,14 +27,14 @@ test("searchParams: 검색어와 페이지가 URL 에 반영되고, 결과가 �
   // 검색 (method=get 폼 → ?q=)
   const search = page.locator("form[method=get]");
   await search.locator('input[name="q"]').fill("스트리밍");
-  await search.getByRole("button", { name: "검색" }).click();
+  await search.getByRole("button", { name: "검색", exact: true }).click(); // "검색어 지우기" 와 구분
   await expect(page).toHaveURL(/\/posts\?q=/);
   await expect(page.getByText(/"스트리밍" 검색 결과/)).toBeVisible();
   await expect(page.getByRole("link", { name: /Suspense 스트리밍/ })).toBeVisible();
   await expect(page.getByRole("link", { name: /Cache Components 란/ })).toHaveCount(0);
 
-  // 초기화
-  await page.getByRole("button", { name: "초기화" }).click();
+  // 지우기
+  await page.getByRole("button", { name: "검색어 지우기" }).click();
   await expect(page).toHaveURL(/\/posts$/);
 });
 
@@ -115,4 +115,25 @@ test("무한 스크롤: 끝에 닿으면 다음 글을 불러오고, 다 읽으�
   // 이어 붙인 목록에 중복 id 가 없다 (커서 방식)
   const hrefs = await links.evaluateAll((as) => as.map((a) => a.getAttribute("href")));
   expect(new Set(hrefs).size).toBe(hrefs.length);
+});
+
+test("디바운스 검색: 입력을 멈추면 버튼 없이 URL 이 바뀌고 결과가 갱신된다", async ({ page }) => {
+  await page.goto("/posts");
+  // onChange 는 hydration 이 끝나야 붙는다. 그 전에 타이핑하면 디바운스가 예약되지 않으므로 페이지가 안정될 때까지 기다린다
+  await page.waitForLoadState("networkidle");
+  const input = page.getByLabel("검색어");
+
+  // 타이핑 중에는 URL 이 바뀌지 않는다 (글자 사이 간격 50ms < 디바운스 400ms)
+  await input.pressSequentially("스트리밍", { delay: 50 });
+  await expect(page).toHaveURL(/\/posts$/);
+
+  // 멈추면 400ms 뒤 한 번만 이동
+  await expect(page).toHaveURL(/\/posts\?q=/, { timeout: 3000 });
+  await expect(page.getByText(/"스트리밍" 검색 결과/)).toBeVisible();
+  await expect(page.getByRole("link", { name: /Suspense 스트리밍/ })).toBeVisible();
+
+  // 지우기 버튼 → 즉시 /posts
+  await page.getByRole("button", { name: "검색어 지우기" }).click();
+  await expect(page).toHaveURL(/\/posts$/);
+  await expect(page.getByText(/검색 결과/)).toHaveCount(0);
 });

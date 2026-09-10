@@ -148,6 +148,7 @@ Next.js 16 에서는 ISR 을 별도 설정이 아니라 `"use cache"` + `cacheLi
 | 31 | OpenAPI 명세로 API 문서화 | `src/lib/api/openapi.ts`, `/api/v1/openapi.json` |
 | 32 | zustand 기본: 형제 컴포넌트가 공유하는 UI 상태 (todos 다중 선택) | `src/stores/todo-selection-store.ts`, Part 6 |
 | 33 | zustand persist: localStorage 영속과 SSR hydration (최근 본 글) | `src/stores/recently-viewed-store.ts`, Part 6 |
+| 34 | 디바운스 검색: 입력이 멈추면 URL 갱신, `useTransition` 으로 깜빡임 방지 | `src/hooks/use-debounced-callback.ts`, `src/app/posts/post-search-form.tsx` (2-9) |
 
 이후에 볼 항목은 [docs/NEXT_STEPS.md](docs/NEXT_STEPS.md) 에 정리해 두었다.
 
@@ -450,6 +451,13 @@ Zod 쪽 핵심 코드 흐름 (`createPostAction`):
 - `searchParams` 는 `params` 처럼 Promise 이고, **요청 시점 데이터** 다. Cache Components 에서는 이걸 읽는 컴포넌트(`PostList`)만 `<Suspense>` 안에 두고, 제목/버튼은 정적 셸에 남긴다.
 - 캐시 함수 안에서는 요청 API 를 읽을 수 없으므로 값을 꺼낸 뒤 **인자로** 넘긴다: `getPostsPage(query, page)`. 인자가 캐시 키에 들어가 "검색어 × 페이지" 조합마다 별도 엔트리가 생기고, 태그(`posts`)는 같아서 글이 바뀌면 전부 무효화된다.
 - 검색 폼은 `<form method="get">`. JS 없이도 브라우저가 `?q=` 로 이동시켜 준다. 페이지 링크는 `<Link href="/posts?q=...&page=2">`.
+- **디바운스 검색** (`post-search-form.tsx`, `src/hooks/use-debounced-callback.ts`): 실무에서는 버튼을 누르지 않아도 입력이 멈추면 검색된다. 키 입력마다 요청하면 서버와 네트워크가 낭비되므로 "마지막 입력 뒤 400ms 동안 조용하면 한 번" 실행하는 것이 디바운스다.
+  - 입력창은 로컬 `useState` 로 즉시 반응하고, 디바운스된 콜백이 `router.replace("/posts?q=…")` 로 URL 만 바꾼다. 검색 자체는 여전히 서버 컴포넌트가 `searchParams` 로 한다. 클라이언트 페칭으로 바꾼 것이 아니다.
+  - `push` 대신 `replace`: 키 입력마다 히스토리가 쌓이면 뒤로 가기가 글자 단위로 되돌아간다.
+  - `useTransition` 으로 감싸서 이동 중에도 현재 목록이 그대로 보이고 입력창의 스피너만 돈다. 감싸지 않으면 Suspense fallback(스켈레톤)으로 깜빡인다.
+  - Enter 와 검색 버튼은 디바운스를 취소하고 즉시 이동. JS 가 없으면 `<form method="get">` 이 그대로 동작한다(점진적 향상).
+  - 훅은 직접 구현했다: 새 호출이 오면 이전 타이머 취소, 언마운트 시 취소, 최신 콜백을 `ref` 로 보관. `use-debounced-callback.test.tsx` 가 가짜 타이머로 검증한다.
+  - 입력창은 **비제어(`defaultValue`)** 로 둔다. E2E 를 돌리다 발견한 것: 제어 컴포넌트(`value={state}`)로 만들면 hydration 이 끝나는 순간 React 가 DOM 값을 초기 state 로 되돌려, 사용자가 hydration 전에 타이핑한 글자가 사라진다. `onChange` 자체도 hydration 뒤에야 붙으므로 E2E 는 `waitForLoadState("networkidle")` 뒤에 타이핑한다.
 - 잘못된 값(`page=abc`, `page=999`)은 서버에서 보정한다. URL 은 사용자 입력이다.
 
 ### 2-10. 외부 API `fetch` 와 `use()` (`src/lib/github.ts`, `/releases`)
@@ -1378,6 +1386,7 @@ src/
       page.tsx      # 목록 (use cache, ISR)
       actions.ts    # 작성 / 수정 / 삭제 / 댓글 (모두 세션 검사) / 캐시 갱신
       post-form.tsx # 작성·수정 공용 폼
+      post-search-form.tsx # 디바운스 검색창 (URL 갱신)
       error.tsx     # Error Boundary
       cache-controls.tsx, new-post-form.tsx
       [id]/
@@ -1408,6 +1417,8 @@ src/
         comments/[id]/route.ts               # 댓글 삭제
         todos/route.ts, todos/[id]/route.ts
         */*.test.ts   # 라우트 핸들러를 직접 호출하는 테스트
+  hooks/
+    use-debounced-callback.ts # 디바운스 훅 (직접 구현)
   stores/           # zustand 스토어 (Part 6)
     todo-selection-store.ts   # todos 다중 선택 (기본형)
     recently-viewed-store.ts  # 최근 본 글 (persist + skipHydration)

@@ -9,13 +9,13 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getCurrentUser } from "@/lib/dal";
 import { getPostsPage, PAGE_SIZE } from "@/lib/posts";
 import { imageUrl } from "@/lib/uploads";
 import { CacheControls } from "./cache-controls";
 import { NewPostForm } from "./new-post-form";
+import { PostSearchForm } from "./post-search-form";
 
 export const metadata: Metadata = { title: "글 목록 | Next.js Study App" };
 
@@ -67,16 +67,8 @@ async function PostList({ searchParams }: Pick<PageProps<"/posts">, "searchParam
 
   return (
     <section className="space-y-4">
-      {/* method=get 폼: JS 없이도 동작한다. 제출하면 /posts?q=... 로 이동한다 */}
-      <form action="/posts" method="get" className="flex gap-2">
-        <Input name="q" defaultValue={query} placeholder="제목이나 내용으로 검색" />
-        <Button type="submit" variant="outline">검색</Button>
-        {query && (
-          <Button variant="ghost" nativeButton={false} render={<Link href="/posts" />}>
-            초기화
-          </Button>
-        )}
-      </form>
+      {/* 디바운스 검색창: 입력이 멈추면 URL(?q=)을 바꿔 서버가 다시 검색한다. JS 없이도 GET 폼으로 동작 */}
+      <PostSearchForm initialQuery={query} />
 
       <div className="flex items-center justify-between text-xs text-muted-foreground">
         <span>
