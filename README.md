@@ -1676,9 +1676,11 @@ git worktree list
 
 # 각 폴더는 node_modules 와 data/ 가 따로 있으므로 처음 한 번 설치와 시드가 필요하다
 cp .env ../next-js-study-app-prisma/.env && cp .env ../next-js-study-app-trpc/.env
-(cd ../next-js-study-app-prisma && npm install && npm run db:migrate && npm run db:seed)
-(cd ../next-js-study-app-trpc && npm install && npm run db:seed)
+(cd ../next-js-study-app-prisma && npm install && npm run db:migrate && npm run db:seed && npx next typegen)
+(cd ../next-js-study-app-trpc && npm install && npm run db:seed && npx next typegen)
 ```
+
+마지막의 `npx next typegen` 은 에디터가 `PageProps`, `LayoutProps`, `RouteContext` 를 찾지 못하는 문제를 막는다. 이 타입들은 Next.js 가 `.next/types/routes.d.ts` 에 **생성** 하는 전역 타입이라(`tsconfig.json` 의 `include` 에 `.next/types/**` 가 있다), `.next` 폴더가 없는 새 워크트리에서는 `next dev` 나 `next build` 를 한 번 돌리거나 `next typegen` 을 실행해야 생긴다. 라우트 파일을 추가·이동한 뒤 같은 에러가 보여도 `npx next typegen` 으로 해결된다.
 
 VS Code 에서는 `~/Dev/next-js-study.code-workspace` 파일(세 폴더를 묶은 멀티 루트 워크스페이스)을 열면 한 창에 `main`, `feat/prisma`, `feat/trpc` 가 나란히 보인다. 같은 파일을 두 폴더에서 열어 "Compare Selected" 로 diff 를 볼 수 있다.
 워크트리 폴더 안에서 커밋하면 그 브랜치에 커밋된다. 폴더를 지울 때는 `rm` 이 아니라 `git worktree remove <폴더>` 를 쓴다.
