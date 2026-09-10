@@ -725,6 +725,62 @@ curl -s -w "%{stderr}--- status: %{http_code}  time: %{time_total}s\n" -D /dev/s
 
 `-I` 는 HEAD 요청을 보내므로 GET 과 응답이 다를 수 있다. 헤더만 볼 때도 `-D - -o /dev/null` 쪽이 안전하다.
 
+#### 요청 헤더 보는 법 (내가 무엇을 보냈는지 확인)
+
+401 이나 415 가 날 때는 "서버가 뭘 돌려줬나" 보다 "내가 뭘 보냈나" 를 먼저 봐야 한다. curl 이 실제로 보낸 요청은 `-v` 로 볼 수 있다.
+보낸 요청은 `>`, 받은 응답은 `<` 로 시작하고, 이 출력은 stderr 로 나가므로 `2>&1` 로 합쳐야 grep 이 된다.
+
+```bash
+# 보낸 요청 헤더만
+curl -s -v -H "Authorization: Bearer $TOKEN" $B/api/v1/auth/me 2>&1 | grep "^>"
+
+# 보낸 것(>)과 받은 것(<) 모두
+curl -s -v -H "Authorization: Bearer $TOKEN" $B/api/v1/auth/me 2>&1 | grep "^[<>]"
+
+# 요청 본문(JSON)까지 확인해야 할 때: -v 는 본문을 안 보여 주므로 --trace-ascii 를 쓴다
+curl -s --trace-ascii /dev/stderr -X POST $B/api/v1/posts \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"title":"t","content":"c"}' 2>&1 >/dev/null | grep -A2 "Send header\|Send data"
+```
+
+`-v` 출력에서 확인할 것:
+
+| 보이는 것 | 뜻 |
+| --- | --- |
+| `> Authorization: Bearer eyJ...` | 토큰이 정상적으로 붙었다 |
+| `> Authorization: Bearer` (뒤가 빔) | `$TOKEN` 변수가 비어 있다 → 2번 단계를 다시 실행 |
+| `> Authorization: Bearer null` | 토큰 발급이 실패했는데 `jq -r` 이 null 을 문자열로 넣었다 → 발급 응답의 `error` 를 확인 |
+| `> Content-Type: application/json` 이 없음 | `-H` 를 빼먹었다. 우리 API 는 415 `unsupported_media_type` 을 돌려준다 |
+| 헤더는 정상인데 401 | 발급 후 1시간이 지나 토큰이 만료됐다 → 다시 발급 |
+
+`Host`, `User-Agent`, `Accept` 는 curl 이 기본으로 붙이는 것이라 신경 쓰지 않아도 된다.
+
+**`-v` 는 어디에 넣나, `| jq` 와 같이 써도 되나**: 옵션이라 위치는 상관없고 보통 `-s` 옆에 둔다. `-v` 출력은 stderr 로 가므로
+`| jq` 는 그대로 동작한다. `-v` 가 응답 헤더(`<`)까지 보여 주므로 `-D /dev/stderr` 는 같이 쓰지 않는다 (두 번 찍힌다).
+
+```bash
+curl -s -v $B/api/v1/openapi.json | jq '.info, (.paths | keys)'
+```
+
+GET 은 요청 바디가 없으니 `>` 줄에는 헤더만 보인다. **요청 바디는 `-v` 로도 안 보인다.** `-d` 로 데이터를 보내는 POST/PATCH 에서
+바디까지 확인하려면 `--trace-ascii /dev/stderr` 를 쓴다. 요청 헤더, 보낸 바디(`Send data`), 응답 헤더, 받은 바디가 전부 stderr 에 찍히고
+stdout 에는 응답 본문만 남아 `| jq` 가 정상 동작한다.
+
+```bash
+curl -s --trace-ascii /dev/stderr -X POST $B/api/v1/posts \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"title":"t","content":"c"}' | jq
+```
+
+| 상황 | 옵션 |
+| --- | --- |
+| GET, 요청 헤더만 확인 | `-v` |
+| POST/PATCH, 보낸 바디까지 확인 | `--trace-ascii /dev/stderr` |
+| 응답 헤더만 (요청은 관심 없음) | `-D /dev/stderr` (jq 와 함께) 또는 `-D - -o /dev/null` (본문 버림) |
+
+서버가 **실제로 받은** 헤더를 보고 싶으면(프록시를 거치면 달라질 수 있다) `src/lib/api/route.ts` 의 래퍼 안에
+`console.log(Object.fromEntries(request.headers))` 를 임시로 넣으면 `npm run dev` 터미널에 찍힌다. 확인 후에는 지운다.
+
 #### 13. 레이트 리밋 헤더와 OpenAPI 명세
 
 ```bash
