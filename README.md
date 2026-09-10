@@ -51,13 +51,327 @@ npm run db:seed -- --reset   # 샘플 데이터로 초기화
 
 ---
 
+## 용어 사전 (모르는 말이 나오면 여기로)
+
+이 문서에는 낯선 용어가 많이 나온다. 각 용어를 **쉬운 말 한두 줄** 로 풀고, 자세한 설명이 있는 절 번호를 붙였다. 본문을 읽다 막히면 이 표로 돌아온다.
+
+### 기본 구조
+
+| 용어 | 쉬운 말로 | 자세히 |
+| --- | --- | --- |
+| **컴포넌트** | 화면 조각을 만드는 함수. `<TodoItem/>` 처럼 태그로 쓴다. 조각을 조립해 페이지를 만든다 | 1-5 |
+| **라우트 / 라우팅** | URL(`/posts/3`)과 그 URL 에서 보여 줄 화면을 짝짓는 것. App Router 에서는 **폴더 구조가 곧 URL** 이다 | 1-1, 2-4 |
+| **세그먼트** | URL 을 `/` 로 자른 조각 하나. `/posts/3/edit` 은 `posts`, `3`, `edit` 세 세그먼트. 폴더 하나가 세그먼트 하나 | 2-4 |
+| **동적 세그먼트** `[id]` | 값이 정해지지 않은 세그먼트. 폴더 이름을 `[id]` 로 만들면 `/posts/1`, `/posts/2` 모두 이 폴더가 처리하고, 값은 `params` 로 받는다 | 2-4 |
+| **layout.tsx** | 여러 페이지가 공유하는 틀(헤더, 메뉴). 페이지를 옮겨도 다시 그려지지 않는다 | 2-15 |
+| **page.tsx** | 그 URL 에서 실제로 보여 줄 내용. 이 파일이 있어야 URL 이 열린다 | 1-3 |
+| **라우트 그룹** `(이름)` | 괄호 폴더. URL 에는 안 들어가고 파일을 묶거나 레이아웃을 공유하는 용도 | 3-1, 2-14 |
+| **App Router** | Next.js 13 부터의 라우팅 방식. `src/app/` 폴더를 쓴다. 예전 방식은 Pages Router(`pages/` 폴더) | 스택 |
+
+### 서버와 브라우저
+
+| 용어 | 쉬운 말로 | 자세히 |
+| --- | --- | --- |
+| **서버** | 코드를 실행해 HTML 과 데이터를 만들어 주는 컴퓨터. 개발 중에는 내 PC 의 `npm run dev` 가 서버다 | 왕초보 0 |
+| **클라이언트 / 브라우저** | 사용자가 보는 쪽. Chrome 같은 프로그램 | 왕초보 0 |
+| **요청 / 응답** | 브라우저가 "이 페이지 주세요" 하는 것이 요청, 서버가 돌려주는 것이 응답 | 왕초보 0 |
+| **서버 컴포넌트** | 서버에서만 실행되는 컴포넌트. DB 를 바로 읽을 수 있고 `async` 가 된다. App Router 의 기본값 | 1-3 |
+| **클라이언트 컴포넌트** | 브라우저에서도 실행되는 컴포넌트. 파일 맨 위에 `"use client"` 를 쓴다. 클릭·입력 같은 상호작용을 담당 | 1-5 |
+| **Server Action** | 브라우저에서 부르면 서버에서 실행되는 함수. 파일 맨 위에 `"use server"`. 폼 제출이나 버튼 클릭으로 데이터를 바꿀 때 쓴다 | 1-4 |
+| **Route Handler** | `route.ts` 파일. URL 로 오는 HTTP 요청(GET/POST 등)을 직접 처리해 JSON 등을 돌려주는 API | 1-6, Part 5 |
+| **API** | 프로그램끼리 데이터를 주고받는 약속된 창구. 이 프로젝트에서는 `/api/...` URL 들 | 1-6 |
+| **HTML** | 브라우저가 화면으로 그리는 문서. 서버가 만들어 보내는 "완성된 그림" | 왕초보 0 |
+| **JS 번들** | 브라우저로 보내는 자바스크립트 파일 묶음. 이게 도착해야 버튼이 눌린다 | 왕초보 4 |
+| **hydration** | 서버가 보낸 HTML(그림)에 JS 가 붙어 살아나는 과정. 이 전에는 클릭이 안 된다 | 왕초보 4 |
+| **hydration 불일치** | 서버가 만든 HTML 과 브라우저가 처음 그린 결과가 달라서 나는 에러 | 왕초보 4, 6-2 |
+| **HMR** (Hot Module Replacement) | 개발 중 파일을 저장하면 새로고침 없이 바뀐 부분만 교체해 주는 기능 | 1-2 |
+
+### 렌더링과 캐시
+
+| 용어 | 쉬운 말로 | 자세히 |
+| --- | --- | --- |
+| **렌더링** | 코드와 데이터로 HTML(화면)을 만드는 일 | 왕초보 1 |
+| **SSG / SSR / CSR / ISR** | HTML 을 "언제 어디서" 만드느냐의 네 방식. 빌드 때 / 요청 때 / 브라우저에서 / 빌드 때 + 주기적 갱신 | 왕초보 1~2 |
+| **빌드** (`npm run build`) | 배포용으로 코드를 변환하고, 미리 만들 수 있는 HTML 을 만들어 두는 과정 | 빌드 결과 읽는 법 |
+| **프리렌더** | 빌드 때 미리 HTML 을 만들어 두는 것. SSG 와 같은 말에 가깝다 | 2-1 |
+| **정적 / 동적** | 정적 = 누가 언제 봐도 같은 것(미리 만들 수 있음). 동적 = 요청마다 달라질 수 있는 것(그때 만들어야 함) | 2-1 |
+| **정적 셸** | 페이지에서 미리 만들어 둘 수 있는 부분(레이아웃, 제목 틀). 먼저 보내고 나머지를 채운다 | 2-1, 왕초보 5 |
+| **Partial Prerender** `◐` | 정적 셸 + 동적 부분 스트리밍. 한 페이지에 둘이 섞인 상태 | 빌드 결과 읽는 법 |
+| **스트리밍** | 페이지를 한 번에 보내지 않고 준비된 조각부터 차례로 보내는 것 | 2-6 |
+| **Suspense** | "이 안은 늦게 올 수 있으니 그동안 이걸(fallback) 보여 줘" 라고 표시하는 React 도구 | 2-5, 2-6 |
+| **loading.tsx** | 페이지 전체를 Suspense 로 감싸는 파일. 로딩 중 스켈레톤을 보여 준다 | 2-5 |
+| **캐시** | 한 번 만든 결과를 보관해 두고 다시 쓰는 것. 다시 만드는 비용을 아낀다 | 왕초보 3 |
+| **Cache Components** | Next.js 16 의 캐싱 모드 이름(컴포넌트 종류가 아님). `"use cache"` 로 표시한 것만 캐시한다 | 2-1 |
+| **`"use cache"`** | 함수나 컴포넌트 맨 위에 쓰면 그 결과가 캐시된다 | 2-1 |
+| **`cacheLife`** | 캐시를 얼마나 오래 쓸지(수명). `"minutes"`, `"hours"` 등 | 2-2 |
+| **`cacheTag` / 태그** | 캐시에 붙이는 이름표. 나중에 이 이름으로 골라서 지울 수 있다 | 2-3 |
+| **무효화 / 재검증** | 캐시를 "낡았다" 고 표시해 다음에 새로 만들게 하는 것. `updateTag`, `revalidateTag`, `revalidatePath` | 2-3 |
+| **`connection()`** | "이 아래 코드는 요청이 온 다음에 실행하라" 는 표시. 빌드 때 실행되어 굳는 것을 막는다 | 1-1 |
+| **`generateStaticParams`** | 동적 세그먼트 중 빌드 때 미리 만들 값들의 목록을 돌려주는 함수 | 2-4 |
+| **낙관적 업데이트** | 서버 응답을 기다리지 않고 화면을 먼저 바꾸는 것. 실패하면 되돌린다 (`useOptimistic`) | 1-5 |
+| **트랜지션** (`useTransition`) | "이 상태 변경은 급하지 않으니 화면을 멈추지 말고 처리해" 라고 React 에 알리는 것. 진행 중 여부(`isPending`)를 준다 | 1-5, 2-9 |
+
+### 데이터와 폼
+
+| 용어 | 쉬운 말로 | 자세히 |
+| --- | --- | --- |
+| **DB / SQLite** | 데이터를 저장하는 곳. SQLite 는 파일 하나짜리 가벼운 DB | 1-2 |
+| **SQL** | DB 에 명령하는 언어. `SELECT * FROM todos` 같은 문장 | 1-2 |
+| **스키마** | 테이블과 컬럼의 구조 정의 | 3-6 |
+| **마이그레이션** | 스키마를 바꾸는 작업(컬럼 추가 등)과 그 이력 | 3-6 |
+| **ORM** (Prisma 등) | SQL 대신 코드로 DB 를 다루게 해 주는 도구. 이 프로젝트는 안 쓰고 SQL 을 직접 쓴다 | NEXT_STEPS |
+| **DAL** (Data Access Layer) | DB 접근과 권한 검사를 모아 둔 계층. `src/lib/` 폴더 | 3-3 |
+| **DTO** | 밖으로 내보내도 되는 필드만 담은 객체. 비밀번호 해시 같은 건 뺀다 | 3-1, 5-9 |
+| **검증** (validation) | 입력값이 규칙에 맞는지 확인하는 것. Zod 는 규칙을 선언하는 라이브러리 | 2-8 |
+| **`useActionState`** | 폼에 Server Action 을 연결하고 결과 상태와 진행 중 여부를 주는 훅 | 1-5 |
+| **제어 / 비제어 입력** | 제어 = 입력값을 React state 가 들고 있음(`value=`). 비제어 = DOM 이 들고 있음(`defaultValue=`) | 2-9 |
+| **디바운스** | 연속 입력이 멈춘 뒤 일정 시간이 지나면 한 번만 실행하는 기법 | 2-9 |
+| **커서 페이지네이션** | "마지막으로 본 id 다음부터 N개" 로 다음 페이지를 가져오는 방식. 무한 스크롤에 쓴다 | 2-13 |
+| **searchParams** | URL 의 `?q=검색어&page=2` 부분. 페이지에서 Promise 로 받는다 | 2-9 |
+
+### 인증과 보안
+
+| 용어 | 쉬운 말로 | 자세히 |
+| --- | --- | --- |
+| **인증 / 인가** | 인증 = 네가 누구인지 확인(로그인). 인가 = 네가 이걸 해도 되는지 확인(내 글만 수정) | Part 3 |
+| **세션** | 로그인 상태를 요청 사이에 기억하는 것 | 3-2 |
+| **쿠키** | 브라우저가 보관했다가 요청마다 자동으로 같이 보내는 작은 값. 세션을 여기에 담는다 | 3-2 |
+| **JWT** | 서명이 붙은 토큰 문자열. 내용을 바꾸면 서명이 안 맞아 들킨다 | 3-2 |
+| **해시** | 되돌릴 수 없게 뒤섞은 값. 비밀번호는 원문 대신 해시를 저장한다 | 3-1 |
+| **Bearer 토큰** | `Authorization: Bearer <값>` 헤더로 보내는 자격증명. API 호출에 쓴다 | 5-4 |
+| **API 키** | 봇이나 다른 서버가 쓰는 긴 비밀 문자열. 만료가 없고 개별 폐기가 된다 | 5-4 |
+| **proxy.ts** | 모든 요청이 페이지에 닿기 전에 먼저 거치는 코드. 예전 이름은 middleware | 3-3 |
+| **CSRF** | 남의 사이트가 내 브라우저를 시켜 우리 서버에 몰래 요청하는 공격. `sameSite` 쿠키와 Bearer 헤더로 막는다 | 3-2, 5-4 |
+| **XSS** | 남이 심은 스크립트가 내 브라우저에서 실행되는 공격. `httpOnly` 쿠키로 피해를 줄인다 | 3-2 |
+| **CORS** | 다른 도메인의 브라우저 JS 가 우리 API 를 부를 수 있게 허용하는 규칙 | 5-10 |
+| **레이트 리밋** | 일정 시간에 부를 수 있는 횟수 상한 | 5-6 |
+
+### API 와 테스트
+
+| 용어 | 쉬운 말로 | 자세히 |
+| --- | --- | --- |
+| **REST** | URL 과 HTTP 메서드(GET 읽기, POST 만들기, PATCH 고치기, DELETE 지우기)로 자원을 다루는 API 스타일 | Part 5 |
+| **상태 코드** | 응답의 결과 번호. 200 성공, 404 없음, 401 로그인 필요, 403 권한 없음, 422 입력 오류, 429 너무 잦음 | 5-3 |
+| **응답 봉투** | 모든 응답을 `{ data }` 또는 `{ error }` 로 감싸는 통일된 모양 | 5-3 |
+| **OpenAPI** | API 의 모양을 기계가 읽는 형식으로 적은 명세. Swagger 가 이걸 화면으로 보여 준다 | 5-11 |
+| **curl** | 터미널에서 HTTP 요청을 보내는 프로그램 | 5-1 |
+| **jq** | JSON 을 보기 좋게 출력하고 골라내는 터미널 프로그램 | 5-1 |
+| **단위 / 통합 / E2E 테스트** | 함수 하나 / 여러 부품 함께 / 실제 브라우저로 사용자처럼. 각각 Vitest / Vitest+SQLite / Playwright | Part 4 |
+| **mock** | 테스트에서 진짜 대신 쓰는 가짜(예: 실제 요청 없이 `cookies()` 흉내) | 4-3 |
+| **hydration 대기** | E2E 에서 JS 가 붙기 전에 조작하면 실패하므로 페이지가 안정될 때까지 기다리는 것 | 2-9 |
+
+---
+
+## 왕초보를 위한 개념 잡기: 렌더링 · 캐싱 · hydration
+
+아래 "렌더링 방식 개념" 절이 어렵게 느껴지면 이 절부터 읽는다. 비유 하나로 전부 이어서 설명하고, 각 개념마다 이 프로젝트에서 눈으로 확인하는 방법을 붙였다.
+
+### 0. 먼저: 웹 페이지가 화면에 뜨기까지
+
+브라우저에 주소를 치면 이런 일이 일어난다.
+
+```
+1. 브라우저 → 서버: "/posts 주세요" (요청)
+2. 서버 → 브라우저: HTML 파일 (응답)        ← 이 HTML 을 "누가, 언제 만드느냐" 가 오늘의 주제
+3. 브라우저가 HTML 을 화면에 그린다            ← 여기까지는 "사진" 이다. 버튼을 눌러도 아무 일도 안 일어난다
+4. 브라우저 → 서버: "JS 파일도 주세요"
+5. JS 가 도착해 HTML 위에 붙는다               ← 이때부터 버튼이 눌리고 입력이 된다. 이것이 hydration
+```
+
+```mermaid
+sequenceDiagram
+    participant B as 브라우저
+    participant S as 서버
+    B->>S: GET /posts
+    S-->>B: HTML (사진)
+    Note over B: 화면에 보이지만 버튼은 안 눌림
+    B->>S: JS 파일 요청
+    S-->>B: JS
+    Note over B: hydration: HTML 위에 이벤트를 붙임
+    Note over B: 이제 버튼이 눌리고 입력이 됨
+```
+
+기억할 것 두 가지. **HTML 은 그 자체로는 그림이다.** 상호작용은 JS 가 붙어야 생긴다. 그리고 **HTML 을 만드는 데는 시간과 데이터가 든다.** DB 를 읽어야 하고 사용자가 누군지 봐야 할 수도 있다. 그래서 "언제 만들어 둘까" 가 성능과 최신성을 가르는 선택이 된다.
+
+### 1. 비유: 도시락 가게
+
+SSG · SSR · CSR · ISR 은 전부 **"HTML 이라는 도시락을 언제 만드느냐"** 의 차이다.
+
+| 방식 | 도시락 가게라면 | 장점 | 단점 |
+| --- | --- | --- | --- |
+| **SSG** (Static Site Generation) | 아침에 미리 100개 만들어 진열. 손님이 오면 그냥 집어 준다 | 가장 빠르다. 손님이 몰려도 주방이 안 바쁘다 | 재료(데이터)가 바뀌어도 진열된 건 옛날 것이다 |
+| **SSR** (Server-Side Rendering) | 주문이 들어오면 그때 조리해서 준다 | 항상 방금 만든 것. 손님마다 다르게(로그인 사용자 이름 등) 만들 수 있다 | 손님마다 기다린다. 손님이 몰리면 주방이 힘들다 |
+| **CSR** (Client-Side Rendering) | 빈 도시락통과 재료, 조립 설명서를 준다. 손님이 자기 자리에서 조립한다 | 가게는 편하다. 조립하면서 이것저것 바꿔 볼 수 있다(상호작용) | 손님이 조립할 때까지 빈 통만 보인다. 검색엔진(로봇 손님)은 조립을 못 한다 |
+| **ISR** (Incremental Static Regeneration) | 미리 만들어 진열하되, "1분 지나면 다음 손님 올 때 새로 만들어 교체" 규칙을 둔다 | SSG 의 속도 + 가끔 갱신 | 교체 직전엔 잠깐 옛 도시락이 나간다 |
+
+여기서 "손님" 은 브라우저, "주방" 은 서버, "재료" 는 DB 데이터다.
+
+네 방식을 "HTML 을 언제, 어디서 만드나" 로 그리면 이렇다. 위로 갈수록 빠르고, 아래로 갈수록 최신이다.
+
+```mermaid
+flowchart LR
+    subgraph 빌드시점[빌드 시점 · npm run build]
+        SSG[SSG<br/>HTML 한 번 만들어 저장]
+        ISR[ISR<br/>HTML 만들어 저장 + 만료 규칙]
+    end
+    subgraph 요청시점[요청 시점 · 사용자가 접속]
+        SSR[SSR<br/>매 요청마다 서버가 HTML 생성]
+    end
+    subgraph 브라우저[브라우저 · JS 실행 후]
+        CSR[CSR<br/>빈 뼈대 + JS 가 API 호출해 그림]
+    end
+    SSG -- "저장된 파일 그대로" --> 응답((응답))
+    ISR -- "저장된 파일. 만료됐으면<br/>뒤에서 새로 만듦" --> 응답
+    SSR -- "방금 만든 HTML" --> 응답
+    응답 --> CSR
+```
+
+### 2. 네 가지를 한 줄씩
+
+**SSG — 빌드할 때 만든다.** `npm run build` 가 미리 HTML 을 만들어 파일로 저장한다. 요청이 오면 파일을 그냥 준다.
+→ 이 프로젝트: `/api/v1` 안내 응답, `/api/v1/openapi.json`. (홈 `/` 도 원래 SSG 였는데 헤더에 로그인 상태를 넣으면서 아래 "섞기" 로 바뀌었다)
+→ 확인: `npm run build` 표에서 `○ Static`.
+
+**SSR — 요청이 올 때마다 만든다.** 서버가 매번 DB 를 읽고 HTML 을 만든다.
+→ 이 프로젝트: `/todos` 목록. `src/lib/todos.ts` 의 `await connection()` 이 "요청이 온 다음에 실행하라" 는 표시다 (1-1 에 자세히).
+→ 확인: 할 일을 추가하고 새로고침하면 바로 반영된다.
+
+**CSR — 브라우저가 만든다.** 서버는 뼈대만 주고, 브라우저의 JS 가 API 를 불러 화면을 그린다.
+→ 이 프로젝트: `/client-fetch` 의 검색 결과, `/feed` 의 두 번째 페이지부터. 개발자 도구 Network 탭에서 `/api/posts` 요청이 보인다.
+→ 확인: `/client-fetch` 에서 검색어를 치면 서버 HTML 은 안 바뀌고 브라우저가 API 를 부른다.
+
+**ISR — 미리 만들되 주기적으로 다시 만든다.** SSG 로 만들어 두고, 시간이 지나거나(1분, 1시간) 데이터가 바뀌면(`updateTag`) 다시 만든다.
+→ 이 프로젝트: `/posts` 목록(1분), `/posts/[id]` 상세(1시간), `/releases`(1시간).
+→ 확인: `/posts` 의 "캐시 생성 시각" 이 새로고침해도 안 바뀌다가, 글을 쓰거나 1분이 지나면 바뀐다.
+
+### 3. 캐싱: 한 번 만든 걸 보관했다가 다시 쓰기
+
+**캐시(cache) = 다시 만들기 아까운 결과를 보관해 두는 곳.** ISR 은 결국 "HTML 을 캐시해 두고 가끔 새로 만든다" 는 뜻이고, SSG 는 "빌드 때 만든 캐시를 영원히 쓴다" 는 뜻이다. 그래서 캐싱을 이해하면 네 가지 방식이 하나로 보인다.
+
+캐시는 여러 층에 있다. 이 프로젝트에서 실제로 쓰는 층:
+
+| 층 | 어디에 | 무엇을 | 언제 버리나 | 이 프로젝트 |
+| --- | --- | --- | --- | --- |
+| 서버 데이터 캐시 | 서버 메모리 | 함수의 반환값 (`"use cache"`) | `cacheLife` 시간이 지나거나 `updateTag` 로 지울 때 | `getPostsPage`, `getPost`, `getCommentThreads`, `getNextReleases` |
+| 정적 셸 | 빌드 결과 파일 | 페이지의 정적인 부분 HTML | 다시 빌드할 때 | 모든 `◐` 페이지의 레이아웃·제목 |
+| 브라우저 라우터 캐시 | 브라우저 메모리 | 방문했거나 미리 가져온 페이지 조각 | 일정 시간 뒤, 또는 새로고침 | `<Link>` 로 이동할 때 빠른 이유 |
+| 클라이언트 라이브러리 캐시 | 브라우저 메모리 | API 응답 | 라이브러리 규칙(`staleTime` 등) | SWR, TanStack Query (`/client-fetch`, `/feed`) |
+| localStorage | 브라우저 디스크 | 사용자가 남긴 값 | 지울 때까지 | 최근 본 글 (zustand persist) |
+| HTTP 캐시 | 브라우저/CDN | 파일 응답 | `Cache-Control` 헤더 | 업로드 이미지 (`immutable`) |
+
+요청 하나가 어떤 캐시들을 지나는지 그리면 이렇다. 위쪽 캐시에서 걸리면 아래로 내려가지 않는다.
+
+```mermaid
+flowchart TD
+    U[사용자 요청 /posts/3] --> RC{브라우저 라우터 캐시에<br/>이 페이지 조각이 있나?}
+    RC -- 있음 --> SHOW[즉시 표시]
+    RC -- 없음 --> SHELL[정적 셸 전송<br/>레이아웃·제목 틀]
+    SHELL --> DC{서버 데이터 캐시에<br/>getPost 3 결과가 있나?}
+    DC -- "있음 (1시간 안)" --> HTML[본문 스트리밍]
+    DC -- "없음 / 만료 / updateTag 됨" --> DB[(SQLite 조회)] --> SAVE[캐시에 저장] --> HTML
+    HTML --> SESSION[세션·댓글 등<br/>요청 시점 조각 스트리밍]
+    SESSION --> SHOW
+```
+
+초보가 헷갈리는 지점: **"캐시가 있다" 와 "캐시된다" 는 다르다.** Cache Components 모드는 캐시를 켜는 것이 아니라 "캐시할 곳을 네가 `"use cache"` 로 표시하라" 는 규칙이다. 표시 안 한 것은 캐시되지 않는다. `/todos` 에 캐시가 하나도 없는 이유다(1-1 "오해 주의").
+
+캐시를 버리는 두 가지 방법도 기억하자. **시간**(`cacheLife("minutes")`: 1분 지나면 다음 요청 때 새로 만듦)과 **이벤트**(`updateTag("posts")`: 글을 쓰는 순간 지움). 실무에서는 둘을 같이 쓴다. 이벤트를 놓쳐도 시간이 지나면 어차피 갱신되니까.
+
+### 4. hydration: 사진에 생명 불어넣기
+
+서버가 보낸 HTML 은 사진이다. 버튼 모양은 있지만 눌러도 아무 일도 안 일어난다. 브라우저가 JS 를 받아 실행하면서 **"이 버튼에는 이 함수, 이 입력창에는 이 핸들러"** 를 붙이는 과정이 hydration(수화, 물 붓기)이다. 마른 화분에 물을 부어 살리는 그림을 떠올리면 된다.
+
+순서:
+```
+서버 HTML 도착 → 화면에 사진처럼 보임 (빠름) → JS 도착 → React 가 HTML 을 한 번 훑으며 같은 트리를 만들고 이벤트를 붙임 → 상호작용 가능
+```
+
+```mermaid
+sequenceDiagram
+    participant S as 서버
+    participant B as 브라우저 (React)
+    S-->>B: HTML: 배지 없음 (서버는 localStorage 를 모름)
+    Note over B: 1) 첫 렌더링은 서버와 똑같이 "배지 없음"
+    Note over B: 2) hydration 완료. 이벤트가 붙음
+    Note over B: 3) useEffect → localStorage 읽기 (rehydrate)
+    Note over B: 4) 상태 갱신 → 배지 "3" 표시
+    Note over S,B: 1) 과 서버 HTML 이 같으므로 불일치 없음.<br/>3) 을 1) 에서 하면 서버 HTML 과 달라져 에러
+```
+
+**왜 문제가 생기나: hydration 불일치.** React 는 "서버가 만든 HTML" 과 "브라우저에서 처음 그린 결과" 가 **똑같아야** 한다고 가정한다. 다르면 경고나 에러가 나고 화면이 깨질 수 있다. 서버와 브라우저에서 결과가 달라지는 대표 원인:
+- `localStorage`, `window` 처럼 브라우저에만 있는 것 (서버에는 없다)
+- `new Date()`, `Math.random()` 처럼 실행할 때마다 다른 값
+- 로그인 상태처럼 요청마다 다른 것
+
+이 프로젝트에서 실제로 부딪힌 사례와 해결:
+
+| 사례 | 문제 | 해결 |
+| --- | --- | --- |
+| 최근 본 글 배지 (헤더) | 서버는 localStorage 를 모르니 0, 브라우저는 3 → 불일치 | 첫 렌더링은 서버처럼 0 으로 그리고, 마운트 후 `rehydrate()` 로 값을 채운다 (Part 6-2) |
+| 최근 본 글 위젯 (상세) | 위와 같음 | `next/dynamic` `ssr:false` 로 서버에서는 아예 안 그린다 (2-12) |
+| 무한 스크롤 | TanStack Query 가 `Date.now()` 를 써서 빌드 시점에 굳음 | `use(io())` 로 프리렌더 때는 건너뛴다 (2-13) |
+| 검색창 | hydration 전에 타이핑한 글자가 hydration 순간 사라짐 | 제어 컴포넌트 대신 비제어(`defaultValue`) 사용 (2-9) |
+
+**"클라이언트 컴포넌트도 서버에서 그려진다"** 는 점이 초보에게 가장 낯설다. `"use client"` 는 "브라우저에서**도** 실행된다" 는 뜻이지 "브라우저에서**만** 실행된다" 는 뜻이 아니다. 서버가 먼저 HTML 을 만들고(SSR), 브라우저가 이어받는다(hydration). 서버에서 실행되면 안 되는 코드(localStorage 등)만 `useEffect` 안이나 `ssr:false` 로 뺀다.
+
+### 5. 한 페이지 안에 다 섞여 있다
+
+Next.js 16 에서는 "이 페이지는 SSG, 저 페이지는 SSR" 처럼 페이지 단위로 고르지 않는다. **한 페이지 안의 조각마다** 다르다. `/posts/[id]` 글 상세를 뜯어 보면:
+
+```
+글 상세 페이지 (/posts/3)
+├─ 헤더의 메뉴, 글 제목·본문 틀           → 정적 셸. 빌드 때 만들어 즉시 나감 (SSG 성격)
+├─ 글 본문 데이터 getPost(3)               → 서버 데이터 캐시. 1시간 보관, 글 수정 시 updateTag (ISR 성격)
+├─ 헤더의 "OO 님" 로그인 표시               → 요청마다 쿠키를 읽어 스트리밍 (SSR 성격, Suspense 안)
+├─ 수정/삭제 버튼 (작성자만)               → 요청마다 세션 확인 (SSR 성격, Suspense 안)
+├─ 댓글 목록                               → 캐시 + 현재 사용자 (ISR + SSR 이 합쳐진 조각)
+├─ "다른 글" (1.5초 지연)                  → 요청마다, 늦게 스트리밍 (SSR 성격)
+├─ 최근 본 글 위젯                          → 브라우저에서만 (CSR 성격, localStorage)
+└─ 체크박스·버튼의 클릭 반응                → hydration 후 JS 가 처리 (CSR 성격)
+```
+
+시간 순서로 보면 "먼저 도착하는 것" 과 "나중에 채워지는 것" 이 나뉜다.
+
+```mermaid
+gantt
+    title /posts/3 한 번 열 때 화면이 채워지는 순서 — 가로축은 시간
+    dateFormat X
+    axisFormat %L ms
+    section 정적 셸 (빌드 때 만듦)
+    레이아웃·메뉴·제목 틀            :done, 0, 20
+    section 서버 데이터 캐시
+    글 본문 getPost (캐시 히트)       :active, 20, 60
+    section 요청 시점 (Suspense 안)
+    로그인 표시 (쿠키 읽기)           :60, 120
+    수정·삭제 버튼 (세션 확인)        :60, 120
+    댓글 목록 (캐시) + 내 댓글 표시   :60, 150
+    다른 글 (일부러 1.5초 지연)       :60, 1560
+    section 브라우저 (hydration 후)
+    최근 본 글 위젯 (localStorage)    :150, 300
+    버튼 클릭 반응 가능               :150, 300
+```
+
+빌드 표의 `◐ Partial Prerender` 가 바로 이 "섞임" 을 뜻한다. 정적인 조각은 먼저 보내고(빠름), 동적인 조각은 준비되는 대로 스트리밍한다(최신). 어느 조각이 어디에 속하는지 정하는 도구가 `"use cache"`(캐시), `connection()`·`cookies()`(요청 시점), `<Suspense>`(경계), `"use client"`(브라우저 상호작용) 네 가지다.
+
+### 6. 자주 하는 오해
+
+- **"SSR 이면 캐시가 없고, SSG 면 캐시가 있다?"** 아니다. SSR 페이지 안에서도 `"use cache"` 함수는 캐시된다(`/posts` 목록). 페이지의 방식과 데이터의 캐시는 별개다.
+- **"`"use client"` 를 붙이면 CSR 이다?"** 아니다. 서버에서 먼저 그려지고(HTML 있음) 브라우저가 이어받는다. 순수 CSR 은 `ssr:false` 나 `useEffect` 안의 fetch 처럼 "브라우저에서만 실행되는 부분" 이다.
+- **"loading.tsx 나 Suspense 가 캐시를 만든다?"** 아니다. 그건 "여기부터는 나중에 채운다" 는 경계선일 뿐이다. 캐시는 `"use cache"` 만 만든다.
+- **"ISR 은 별도 기능이다?"** Next.js 16 에서는 `"use cache"` + `cacheLife` 조합의 다른 이름이다. 문서도 ISR 을 "Revalidation" 이라고 부른다.
+- **"캐시 시각이 안 바뀌면 고장이다?"** 그게 캐시가 동작하는 모습이다. 바뀌길 원하면 `updateTag` 를 부르거나 `cacheLife` 시간을 기다린다.
+
+이 절이 이해됐으면 바로 아래 "렌더링 방식 개념" 절의 표가 요약본으로 읽힐 것이다.
+
+---
+
 ## 렌더링 방식 개념 (SSG · SSR · CSR · ISR)
 
 "HTML 을 **언제, 어디서** 만드는가" 로 구분한다. 이 프로젝트에서 각 방식이 어디에 쓰였는지 함께 적었다.
 
 | 방식 | 언제 | 어디서 | 장점 | 단점 | 이 프로젝트 |
 | --- | --- | --- | --- | --- | --- |
-| **SSG** (Static Site Generation) | 빌드 시 1회 | 서버(빌드 머신) | 가장 빠름. CDN 에 그대로 올릴 수 있음 | 데이터가 바뀌면 다시 빌드해야 함 | `/`, `/client-fetch` |
+| **SSG** (Static Site Generation) | 빌드 시 1회 | 서버(빌드 머신) | 가장 빠름. CDN 에 그대로 올릴 수 있음 | 데이터가 바뀌면 다시 빌드해야 함 | `/api/v1`, `/api/v1/openapi.json`. 페이지들은 헤더가 세션을 읽어 `◐` 가 됐지만 세션 부분을 뺀 나머지는 SSG 와 같다 |
 | **SSR** (Server-Side Rendering) | 요청마다 | 서버 | 항상 최신 데이터. 첫 화면에 내용이 있어 SEO 유리 | 요청마다 서버 부하. 응답까지 기다려야 함 | `/todos`, `/api/*` |
 | **CSR** (Client-Side Rendering) | 브라우저에서 JS 실행 후 | 브라우저 | 상호작용이 풍부. 서버 부담 적음 | 첫 화면이 비어 있음(로딩). SEO 불리 | `/client-fetch` 의 검색 결과, `"use client"` 컴포넌트의 상호작용 |
 | **ISR** (Incremental Static Regeneration) | 빌드 시 1회 + 주기/이벤트로 재생성 | 서버 | SSG 의 속도 + 데이터 갱신 가능 | 갱신 직후 잠깐 이전 데이터가 보일 수 있음 | `/posts` 목록, `/posts/[id]` 상세 |
@@ -65,7 +379,7 @@ npm run db:seed -- --reset   # 샘플 데이터로 초기화
 ### SSG — 미리 만들어 두기
 
 빌드할 때 HTML 을 만들어 두고, 요청이 오면 그 파일을 그대로 준다. 방문자 수와 무관하게 서버가 일을 하지 않는다.
-App Router 에서는 **요청별 데이터를 안 쓰면 자동으로 SSG** 가 된다. `src/app/page.tsx` 에 아무 설정이 없는데 빌드 결과에 `○ Static` 으로 나오는 이유다.
+App Router 에서는 **요청별 데이터를 안 쓰면 자동으로 SSG** 가 된다. 인증을 붙이기 전까지 `src/app/page.tsx` 는 아무 설정이 없는데도 빌드 결과에 `○ Static` 으로 나왔다. 지금은 루트 레이아웃의 헤더가 세션 쿠키를 읽기 때문에 `◐ Partial Prerender` 로 표시되지만, 세션 부분만 Suspense 안에서 스트리밍되고 페이지 본문은 여전히 빌드 때 만들어진 정적 셸이다.
 
 ### SSR — 요청마다 만들기
 
@@ -114,7 +428,7 @@ Next.js 16 에서는 ISR 을 별도 설정이 아니라 `"use cache"` + `cacheLi
 
 | 단계 | 주제 | 어디서 |
 | --- | --- | --- |
-| 0 | 렌더링 방식 개념 (SSG · SSR · CSR · ISR) | 위 섹션 |
+| 0 | 렌더링 방식 개념 (SSG · SSR · CSR · ISR), 캐싱, hydration | 위의 "왕초보를 위한 개념 잡기" 와 "렌더링 방식 개념" |
 | 1 | 프로젝트 구조, 레이아웃, 페이지, 정적 렌더링 | `src/app/layout.tsx`, `src/app/page.tsx` |
 | 2 | SQLite 연결과 데이터 접근 계층 | `src/lib/db.ts`, `src/lib/todos.ts` |
 | 3 | 서버 컴포넌트 데이터 조회 (SSR) | `src/app/todos/page.tsx` |
@@ -160,7 +474,7 @@ Next.js 16 에서는 ISR 을 별도 설정이 아니라 `"use cache"` + `cacheLi
 
 ### 1-1. 렌더링 방식: SSG 와 SSR
 
-- `/` 홈은 요청별 데이터가 없어 **빌드 시 정적 HTML** 로 만들어진다 (SSG). `src/app/page.tsx` 에 특별한 설정이 없는데도 그렇게 되는 것이 App Router 의 기본 동작이다.
+- `/` 홈은 요청별 데이터가 없어 **빌드 시 정적 HTML** 로 만들어진다 (SSG 성격). `src/app/page.tsx` 에 특별한 설정이 없는데도 그렇게 되는 것이 App Router 의 기본 동작이다. (Part 3 에서 헤더에 로그인 표시를 넣은 뒤로는 그 부분만 요청 시점에 스트리밍되어 빌드 표에 `◐` 로 나온다. 본문은 그대로 정적이다.)
 - `/todos` 는 **요청마다 DB 를 읽는다** (SSR). 이렇게 만드는 스위치는 `src/lib/todos.ts` 의 `await connection()` 한 줄이다. 아래에서 자세히 설명한다.
 
 #### `await connection()` 한 줄이 SSG 를 SSR 로 바꾸는 이유
@@ -208,8 +522,8 @@ const rows = db.prepare("SELECT * FROM todos").all();
 ### 1-2. 데이터 접근 계층 (`src/lib/`)
 
 - `db.ts`: SQLite 연결 하나를 앱 전체에서 공유. 개발 모드 HMR 로 모듈이 다시 로드돼도 연결이 중복 생성되지 않도록 `globalThis` 에 캐시한다. 맨 위의 `import "server-only"` 는 클라이언트 컴포넌트에서 실수로 import 하면 빌드 에러를 내는 안전장치.
-- `todos.ts`: SQL 은 이 파일에만 둔다. DB 행(snake_case, 0/1) 을 앱 타입(camelCase, boolean) 으로 변환하는 `toTodo` 패턴.
-- 환경 변수: DB 경로는 `.env` 의 `DATABASE_PATH`. Next.js 가 `.env` 를 자동 로드하고, `scripts/` 는 `node --env-file` 로 직접 읽는다.
+- `todos.ts`: todos 에 대한 SQL 은 이 파일에만 둔다 (화면, `/api/todos`, `/api/v1/todos` 모두 여기 함수를 쓴다). DB 행(snake_case, 0/1) 을 앱 타입(camelCase, boolean) 으로 변환하는 `toTodo` 패턴.
+- 환경 변수: DB 경로는 `.env` 의 `DATABASE_PATH`. Next.js 가 `.env` 를 자동 로드하고, `scripts/` 는 `node --env-file-if-exists=.env` 로 직접 읽는다 (`package.json` 의 `db:init`, `db:seed`).
 
 #### 최초 DB 연결은 어디서 일어나나
 
@@ -331,7 +645,7 @@ Next.js 16 의 캐싱 규칙은 단순하다.
 - **캐시되지 않은 동적 데이터** (`connection()`, `cookies()`, `params` 등) 는 반드시 `<Suspense>` 또는 `loading.tsx` 안에 있어야 한다. 그래야 정적 셸을 먼저 보내고 나머지를 스트리밍할 수 있다. 어기면 빌드 에러가 안내한다.
 - 이 규칙 때문에 `/todos` 에 `loading.tsx` 를 추가했고, `/api/todos` 는 `connection()` 을 넣어야 정적으로 굳지 않는다.
 
-`src/lib/posts.ts` 를 보면 캐시되는 함수(`getPosts`, `getPost`) 와 안 되는 함수(`getOtherPosts`, `searchPosts`) 가 나뉘어 있다.
+`src/lib/posts.ts` 를 보면 캐시되는 함수(`getPostsPage`, `getPost`) 와 안 되는 함수(`getOtherPosts`, `getPostsByCursor`, `searchPosts`) 가 나뉘어 있다.
 
 #### "Cache Components" 는 컴포넌트 종류가 아니라 캐싱 모드의 이름이다
 
@@ -367,7 +681,7 @@ Next.js 16 의 캐싱 규칙은 단순하다.
 
 "정적으로 만들어 두고, 시간이 지나거나 이벤트가 생기면 다시 만든다."
 
-- `/posts` 목록: `getPosts()` 에 `cacheLife("minutes")`. 빌드 결과에 `Revalidate 1m` 으로 표시된다. 1분이 지난 뒤 첫 요청에서 백그라운드로 재생성된다.
+- `/posts` 목록: `getPostsPage(query, page)` 에 `cacheLife("minutes")`. 검색어와 페이지 조합마다 캐시 엔트리가 생기고, 1분이 지난 뒤 첫 요청에서 백그라운드로 재생성된다. 이 함수는 `searchParams` 를 읽는 `<Suspense>` 안에서 호출되므로 빌드 표의 `/posts` 줄에는 `Revalidate` 값이 표시되지 않는다. 캐시는 요청 시점에 조합별로 만들어진다 (`/posts/[id]` 처럼 빌드 때 미리 렌더링되는 경로에만 `Revalidate` 가 붙는다).
 - 화면에 **캐시 생성 시각** 을 표시해 두었다. 새로고침해도 시각이 안 바뀌면 캐시가 동작하는 것이다.
 - `/posts/[id]` 상세: `getPost(id)` 에 `cacheLife("hours")`. 인자 `id` 가 캐시 키에 들어가 글마다 별도 엔트리가 만들어진다.
 
@@ -492,7 +806,7 @@ GitHub API 에서 Next.js 릴리스 목록을 가져온다. 두 가지를 배운
 | --- | --- | --- |
 | 커서 조회 | `src/lib/posts.ts` 의 `getPostsByCursor` | "마지막으로 본 id 보다 작은 것 N개". `limit+1` 개를 읽어 다음 페이지 유무를 판단 |
 | API | `src/app/api/posts/route.ts` (`?cursor=&limit=`) | `{ posts, nextCursor }` 를 돌려준다. `nextCursor` 가 `null` 이면 끝 |
-| 클라이언트 | `src/app/feed/post-feed.tsx` | `useInfiniteQuery` 로 페이지를 쌓고, `IntersectionObserver` 로 끝을 감지 |
+| 클라이언트 | `src/app/(demos)/feed/post-feed.tsx` | `useInfiniteQuery` 로 페이지를 쌓고, `IntersectionObserver` 로 끝을 감지 |
 
 **offset 과 cursor 의 차이**: `/posts` 는 `OFFSET (page-1)*5` 로 건너뛰는 방식이라 스크롤 중에 새 글이 추가되면 항목이 밀려 중복이나 누락이 생길 수 있다. 커서 방식은 `id < 마지막 id` 조건이라 그런 문제가 없고, 큰 offset 을 세지 않아 뒤 페이지도 빠르다. 대신 "3페이지로 바로 가기" 는 못 한다.
 
@@ -675,6 +989,7 @@ TanStack Query 의 `QueryClientProvider` 는 이 페이지와 `/client-fetch` �
 | 파일 | 내용 |
 | --- | --- |
 | `e2e/rendering.spec.ts` | 캐시 시각이 새로고침 후에도 같은지(ISR), updateTag 로 바뀌는지, 스트리밍 영역이 나중에 채워지는지, not-found / error.tsx, SWR 검색이 API 를 호출하는지 |
+| `e2e/posts-features.spec.ts` | searchParams 검색·페이지네이션, 이미지 업로드(next/image)와 검증 실패, next/dynamic(최근 본 글), 외부 API + use() 스트리밍, 무한 스크롤, 디바운스 검색 |
 | `e2e/routing.spec.ts` | 모달 열기/닫기/새로고침, template 재마운트, 리다이렉트 상태 코드 |
 | `e2e/zustand.spec.ts` | todos 다중 선택 일괄 처리, 최근 본 글 배지의 persist 복원과 서버 HTML 부재 |
 | `e2e/auth-posts-comments.spec.ts` | 가입(검증 실패→성공) → 글 작성/수정 → 댓글/답글 → 게스트로 권한 확인 → 로그인 실패/로그아웃 → 글 삭제. `test.describe.serial` 로 순서를 보장한다 |
@@ -1168,7 +1483,7 @@ Route Handler 에서 부르면 "다음에 그 경로를 방문할 때" 다시 �
 
 ### 5-8. 캐시되지 않는 조회 함수를 따로 둔 이유
 
-화면용 `getPosts()`, `getPost()` 는 `"use cache"` 라서 최대 1분~1시간 낡은 값을 줄 수 있다.
+화면용 `getPostsPage()`, `getPost()` 는 `"use cache"` 라서 최대 1분~1시간 낡은 값을 줄 수 있다.
 화면은 그래도 괜찮지만, **API 클라이언트는 방금 POST 로 만든 글이 바로 이어서 GET 되기를 기대한다.**
 그래서 `listPosts()`, `findPost()`, `listComments()`, `listTodos()`, `findTodo()` 를 캐시 없이 따로 만들었다.
 SQL 은 여전히 `src/lib/` 안에만 있다.
@@ -1287,31 +1602,36 @@ E2E(`e2e/zustand.spec.ts`)가 "서버 HTML 에는 배지가 없다" 를 확인�
 
 ## 빌드 결과 읽는 법
 
-`npm run build` 마지막에 출력되는 표:
+`npm run build` 마지막에 출력되는 표 (2026-09 기준 실제 출력을 요약한 것):
 
 ```
-◐ /                    Partial Prerender   (헤더의 로그인 상태가 Suspense 안에서 스트리밍)
-◐ /login, /signup      Partial Prerender
-◐ /posts               Partial Prerender   (목록은 요청 시 q·page 조합별로 "use cache", 1분 재검증)
-◐ /posts/[id]          Partial Prerender
-◐ /posts/[id]/edit     Partial Prerender
-◐ /client-fetch        Partial Prerender
-◐ /feed          Partial Prerender   (첫 페이지는 셸에, 이후는 브라우저 fetch)
-◐ /releases      Partial Prerender   (Revalidate 1h — 외부 API 캐시)
-◐ /todos               Partial Prerender
-ƒ /api/posts           Dynamic
-ƒ /api/todos           Dynamic
-ƒ /api/uploads/[name]  Dynamic
+◐ /                        Partial Prerender   (헤더의 로그인 상태가 Suspense 안에서 스트리밍)
+◐ /login, /signup          Partial Prerender
+◐ /todos                   Partial Prerender   (목록 전체가 요청 시점. 캐시 없음 → Revalidate 표시 없음)
+◐ /posts                   Partial Prerender   (목록은 요청 시 q·page 조합별로 "use cache" → 표에는 표시 없음)
+◐ /posts/[id]              Partial Prerender   (Revalidate 1h — getPost 캐시. 최신 2개는 빌드 시 미리 생성)
+◐ /posts/[id]/edit         Partial Prerender
+◐ /posts/(.)[id]           Partial Prerender   (인터셉팅 라우트 = 목록 위의 모달)
+◐ /p/[id]                  Partial Prerender   (permanentRedirect 짧은 주소)
+◐ /feed                    Partial Prerender   (Revalidate 1m — 첫 페이지 getPostsPage("",1) 가 셸에 캐시됨)
+◐ /client-fetch            Partial Prerender
+◐ /releases                Partial Prerender   (Revalidate 1h — 외부 API 캐시)
+ƒ /api/posts, /api/todos   Dynamic
+ƒ /api/uploads/[name]      Dynamic
+○ /api/v1, /api/v1/openapi.json   Static   (요청 정보를 안 읽는 안내/명세 응답)
+ƒ /api/v1/**               Dynamic  (인증·레이트 리밋이 요청마다 다름)
 ƒ Proxy (Middleware)                        (src/proxy.ts)
 ```
 
-인증을 붙이기 전에는 `/`, `/posts`, `/client-fetch` 가 `○ Static` 이었다. 헤더에서 세션을 읽기 시작하면서 전부 `◐` 가 됐지만, 세션 부분만 Suspense 안에 있으므로 나머지는 여전히 정적 셸로 즉시 나간다.
-
 | 기호 | 의미 |
 | --- | --- |
-| `○` Static | 빌드 시 정적 HTML 생성 (SSG). `Revalidate` 가 있으면 ISR |
+| `○` Static | 빌드 시 정적 HTML/응답 생성 (SSG). `Revalidate` 가 있으면 ISR |
 | `◐` Partial Prerender | 정적 셸은 빌드 시 생성, 동적 부분은 요청 시 스트리밍 |
 | `ƒ` Dynamic | 요청마다 서버에서 렌더링 (SSR) |
+
+`Revalidate` 열은 **빌드 시점에 프리렌더된 결과에 `"use cache"` 수명이 있을 때만** 표시된다. `/posts` 는 목록이 `searchParams` 를 읽는 Suspense 안에서 캐시되므로(요청 시점에 조합별 캐시 생성) 표에는 안 보이고, `/feed` 는 첫 페이지를 인자 고정(`""`, `1`)으로 프리렌더하므로 보인다. 같은 함수를 쓰는데 표시가 다른 이유가 이것이다.
+
+인증을 붙이기 전에는 `/`, `/posts`, `/client-fetch` 가 `○ Static` 이었다. 헤더에서 세션을 읽기 시작하면서 전부 `◐` 가 됐지만, 세션 부분만 Suspense 안에 있으므로 나머지는 여전히 정적 셸로 즉시 나간다.
 
 ---
 

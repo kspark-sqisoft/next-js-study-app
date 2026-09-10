@@ -51,22 +51,6 @@ function toPost(row: PostRow): Post {
 // 캐시되는 조회 (ISR)
 // ---------------------------------------------------------------------------
 
-/**
- * 글 목록. "use cache" 로 결과가 캐시된다.
- * - cacheLife("minutes"): 1분 지나면 다음 요청 때 백그라운드에서 다시 생성 (시간 기반 ISR)
- * - cacheTag("posts"):    글을 추가/수정/삭제하는 Server Action 에서 updateTag("posts") 로 즉시 무효화 (온디맨드)
- * 반환값에 캐시 생성 시각을 넣어 두면, 새로고침해도 시각이 안 바뀌는 것으로 캐시를 눈으로 확인할 수 있다.
- * 로그인 여부와 무관한 데이터라 사용자 구분 없이 하나의 캐시를 모두가 공유한다.
- */
-export async function getPosts(): Promise<{ posts: Post[]; cachedAt: string }> {
-  "use cache";
-  cacheLife("minutes");
-  cacheTag("posts");
-
-  const rows = db.prepare(`${SELECT_POST} ORDER BY p.id DESC`).all() as PostRow[];
-  return { posts: rows.map(toPost), cachedAt: new Date().toISOString() };
-}
-
 export const PAGE_SIZE = 5;
 
 export type PostsPage = {

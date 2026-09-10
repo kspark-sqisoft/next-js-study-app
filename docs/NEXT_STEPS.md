@@ -18,7 +18,7 @@ README 의 학습 순서를 마친 뒤 이어서 볼 만한 주제들. 위쪽일
 ## 데이터와 캐싱
 
 - **`"use cache: remote"` 와 `cacheHandlers`** — 서버가 여러 대일 때 Redis 등 공유 캐시.
-- ~~**`revalidateTag` 를 Route Handler 에서 호출**~~ → **완료: Part 5-6.** `updateTag` 는 Server Action 전용이라 `revalidateTag(tag, { expire: 0 })` 를 쓴다.
+- ~~**`revalidateTag` 를 Route Handler 에서 호출**~~ → **완료: Part 5-7.** `updateTag` 는 Server Action 전용이라 `revalidateTag(tag, { expire: 0 })` 를 쓴다.
 - **`partialPrefetching` 과 `<Link prefetch={true}>`** — 로그인 사용자 전용 페이지의 즉시 이동.
 - **트랜잭션** — 글 + 댓글 + 이미지처럼 여러 테이블/파일을 한 번에 바꿀 때 (`BEGIN/COMMIT`).
 - **DB 마이그레이션 도구 (Drizzle 또는 Prisma)** — `src/lib/schema.ts` 의 수동 마이그레이션을 도구로 대체. 보류 중이던 "직접 접근 vs Prisma vs tRPC" 비교는 댓글 기능을 소재로.
@@ -51,7 +51,7 @@ README 의 학습 순서를 마친 뒤 이어서 볼 만한 주제들. 위쪽일
 
 - **CSRF** — Server Action 의 origin 검사 원리, Route Handler 에서의 직접 방어.
 - **XSS** — `dangerouslySetInnerHTML` 을 써야 할 때의 sanitize. 마크다운 렌더링을 붙이면 자연스럽게 다룬다.
-- ~~**Rate limiting**~~ → **공개 API 에는 적용 완료** (`src/lib/api/rate-limit.ts`, Part 5-5). 남은 것: 로그인 시도 제한, 서버가 여러 대일 때 공유 저장소(Redis).
+- ~~**Rate limiting**~~ → **공개 API 에는 적용 완료** (`src/lib/api/rate-limit.ts`, Part 5-6). 남은 것: 로그인 시도 제한, 서버가 여러 대일 때 공유 저장소(Redis).
 - **Content Security Policy** — `next.config` 의 `headers` 로 CSP 헤더.
 
 ## 성능

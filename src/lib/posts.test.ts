@@ -5,7 +5,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 vi.mock("next/cache", () => ({ cacheLife: vi.fn(), cacheTag: vi.fn(), updateTag: vi.fn(), revalidateTag: vi.fn() }));
 
 const { createUser } = await import("./users");
-const { countPosts, createPost, deletePost, getPost, getPostIds, getPosts, getPostsByCursor, getPostsPage, PAGE_SIZE, searchPosts, updatePost } =
+const { countPosts, createPost, deletePost, getPost, getPostIds, getPostsByCursor, getPostsPage, PAGE_SIZE, searchPosts, updatePost } =
   await import("./posts");
 
 let author: number;
@@ -23,12 +23,12 @@ describe("posts", () => {
   it("목록은 최신순이고 캐시 생성 시각을 포함한다", async () => {
     const a = createPost("A", "x", author).id;
     const b = createPost("B", "x", author).id;
-    const { posts, cachedAt } = await getPosts();
+    const { posts, cachedAt, total } = await getPostsPage("", 1);
     expect(posts[0].id).toBe(b);
     expect(posts[1].id).toBe(a);
     expect(new Date(cachedAt).getTime()).not.toBeNaN();
     expect(getPostIds()[0]).toBe(b);
-    expect(countPosts()).toBe(posts.length);
+    expect(countPosts()).toBe(total);
   });
 
   it("수정하면 updated_at 이 갱신되고, 검색은 제목과 본문을 모두 본다", async () => {
