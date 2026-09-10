@@ -1684,6 +1684,294 @@ VS Code 에서는 `~/Dev/next-js-study.code-workspace` 파일(세 폴더를 묶�
 워크트리 폴더 안에서 커밋하면 그 브랜치에 커밋된다. 폴더를 지울 때는 `rm` 이 아니라 `git worktree remove <폴더>` 를 쓴다.
 `git worktree` 로 체크아웃된 브랜치는 원래 폴더에서 `git switch` 로 옮길 수 없다(같은 브랜치를 두 곳에 체크아웃하지 못한다). 그때는 워크트리를 지우거나 그 폴더에서 작업한다.
 
+### 7-5. `feat/prisma` 브랜치: 주요 변경 파일과 코드
+
+**한 줄 요약**: 화면·Server Action·Route Handler 는 그대로 두고, `src/lib/` 의 데이터 접근 함수 5개 파일만 SQL 문자열 → Prisma 쿼리로 바꿨다. 함수 이름과 반환 타입이 같아서 위 층은 `await` 를 붙이는 것 말고는 손대지 않았다. (55개 파일 변경 중 대부분은 `await` 추가와 테스트 조정)
+
+| 파일 | 상태 | 역할 |
+| --- | --- | --- |
+| `prisma/schema.prisma` | 새로 생김 | 테이블 정의의 단일 출처. `@@map`/`@map` 으로 기존 snake_case 이름을 유지해 같은 `data/app.db` 를 쓴다 |
+| `prisma/migrations/0_init/migration.sql` | 새로 생김 | 스키마에서 생성한 초기 마이그레이션. 이후 변경은 `npm run db:migrate:dev` 가 새 폴더로 쌓는다 |
+| `prisma.config.ts` | 새로 생김 | Prisma CLI 설정: 스키마 위치, `DATABASE_URL`, 시드 명령(`tsx prisma/seed.ts`) |
+| `prisma/seed.ts` | 새로 생김 (`scripts/seed-db.mts` 대체) | Prisma Client 로 샘플 데이터 삽입. `upsert`, `createMany` 사용 |
+| `src/generated/prisma/` | 자동 생성 (git 제외) | `prisma generate` 산출물. 모델 타입과 클라이언트. `postinstall` 이 다시 만든다 |
+| `src/lib/prisma.ts` | 새로 생김 (`db.ts` 대체) | `PrismaClient` 싱글턴 + `better-sqlite3` 어댑터 |
+| `src/lib/sql-now.ts` | 새로 생김 | `datetime('now')` 형식 문자열. 기존 TEXT 날짜 컬럼과 호환용 |
+| `src/lib/{users,todos,posts,comments,api-keys}.ts` | 전면 수정 | 같은 함수 이름, Prisma 구현, 전부 `async` |
+| `src/lib/db.ts`, `src/lib/schema.ts`, `scripts/*.mts` | 삭제 | Prisma 가 연결·스키마·시드를 맡는다 |
+| `src/test/setup.ts` | 수정 | 임시 DB 를 `prisma/migrations/*.sql` 로 만든다 |
+| `playwright.config.ts` | 수정 | E2E DB 삭제 → `migrate deploy` → 시드 → 빌드 |
+
+#### 코드 1. 연결: `db.ts` → `prisma.ts`
+
+```ts
+// src/lib/prisma.ts (feat/prisma)
+import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
+import { PrismaClient } from "@/generated/prisma/client";
+
+const url = process.env.DATABASE_URL ?? `file:${path.resolve(process.cwd(), process.env.DATABASE_PATH ?? "data/app.db")}`;
+
+function createPrismaClient() {
+  const adapter = new PrismaBetterSqlite3({ url }); // Prisma 7 은 드라이버를 어댑터로 받는다
+  return new PrismaClient({ adapter });
+}
+
+const globalForPrisma = globalThis as unknown as { __prisma?: PrismaClient };
+export const prisma: PrismaClient = globalForPrisma.__prisma ?? createPrismaClient(); // HMR 중복 생성 방지 (db.ts 와 같은 패턴)
+```
+
+`db.ts` 의 `new DatabaseSync(DB_PATH)` + `ensureSchema()` 자리에 `new PrismaClient({ adapter })` 가 들어갔다. 테이블 생성은 이제 마이그레이션이 맡으므로 연결 시점에 스키마를 만지지 않는다.
+
+#### 코드 2. 스키마: SQL 문자열 → 모델 선언
+
+```prisma
+// prisma/schema.prisma (발췌)
+model Post {
+  id        Int     @id @default(autoincrement())
+  title     String
+  content   String
+  authorId  Int?    @map("author_id")                                   // 컬럼 이름은 기존 그대로
+  imagePath String? @map("image_path")
+  createdAt String  @default(dbgenerated("(datetime('now'))")) @map("created_at")
+  updatedAt String  @default(dbgenerated("(datetime('now'))")) @map("updated_at")
+
+  author   User?     @relation(fields: [authorId], references: [id])   // JOIN 을 관계로 선언
+  comments Comment[]
+
+  @@map("posts")
+}
+```
+
+main 의 `schema.ts` 는 `CREATE TABLE IF NOT EXISTS posts (...)` 문자열과, 나중에 추가된 컬럼을 `hasColumn()` 으로 확인해 `ALTER TABLE` 하는 코드였다. 여기서는 모델을 고치고 `npm run db:migrate:dev` 를 하면 마이그레이션 SQL 과 타입이 함께 생성된다.
+
+#### 코드 3. 조회: 같은 함수 `getPostsByCursor` 의 두 구현
+
+```ts
+// main: SQL 문자열 조립
+export function getPostsByCursor(query: string, cursor: number | null, limit: number) {
+  const conditions: string[] = [];
+  const params: (string | number)[] = [];
+  if (query) { conditions.push("(p.title LIKE ? OR p.content LIKE ?)"); params.push(`%${query}%`, `%${query}%`); }
+  if (cursor !== null) { conditions.push("p.id < ?"); params.push(cursor); }
+  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  const rows = db.prepare(`${SELECT_POST} ${where} ORDER BY p.id DESC LIMIT ?`).all(...params, limit + 1) as PostRow[];
+  ...
+}
+```
+
+```ts
+// feat/prisma: 조건이 객체, JOIN 이 include, 결과 타입은 자동
+const withAuthor = { author: { select: { name: true } } } satisfies Prisma.PostInclude;
+type PostWithAuthor = Prisma.PostGetPayload<{ include: typeof withAuthor }>; // "author 를 include 한 Post" 타입을 Prisma 가 만들어 준다
+
+function searchWhere(query: string): Prisma.PostWhereInput {
+  return query ? { OR: [{ title: { contains: query } }, { content: { contains: query } }] } : {};
+}
+
+export async function getPostsByCursor(query: string, cursor: number | null, limit: number) {
+  const rows = await prisma.post.findMany({
+    where: { AND: [searchWhere(query), cursor === null ? {} : { id: { lt: cursor } }] },
+    include: withAuthor,
+    orderBy: { id: "desc" },
+    take: limit + 1,
+  });
+  ...
+}
+```
+
+`PostRow` 타입과 `SELECT_POST` 문자열이 사라졌다. `title` 을 `titel` 로 잘못 쓰면 main 은 실행해야 알지만 여기서는 컴파일 에러다.
+
+#### 코드 4. 일괄 처리: 자리표시자 조립 → `in`
+
+```ts
+// main
+const placeholders = ids.map(() => "?").join(", ");
+db.prepare(`UPDATE todos SET completed = ? WHERE id IN (${placeholders})`).run(completed ? 1 : 0, ...ids);
+
+// feat/prisma
+const r = await prisma.todo.updateMany({ where: { id: { in: ids } }, data: { completed: completed ? 1 : 0 } });
+return r.count;
+```
+
+#### 코드 5. 호출부에 생긴 유일한 변화: `await`
+
+```diff
+ // src/app/posts/actions.ts
+-  const post = createPost(result.data.title, result.data.content, user.id, saved?.name ?? null);
++  const post = await createPost(result.data.title, result.data.content, user.id, saved?.name ?? null);
+-  const parent = findComment(parentId);
++  const parent = await findComment(parentId);
+```
+
+`node:sqlite` 는 동기라 값을 바로 돌려줬지만 Prisma 는 전부 비동기다. `if (findUser(...))` 처럼 `await` 를 빠뜨리면 Promise 는 항상 참이라 **컴파일은 통과하고 동작만 틀린다.** 26개 파일의 호출부를 하나씩 확인한 이유다.
+
+#### 코드 6. 테스트 DB: `ensureSchema()` → 마이그레이션 SQL 실행
+
+```ts
+// src/test/setup.ts (feat/prisma)
+const db = new Database(dbPath); // better-sqlite3
+for (const d of migrationDirs) db.exec(fs.readFileSync(path.join(migrationsDir, d, "migration.sql"), "utf8"));
+```
+
+테스트마다 `prisma` CLI 를 부르면 느리므로 마이그레이션 파일을 그대로 실행한다. 마이그레이션 파일이 스키마의 단일 출처라는 점이 여기서도 쓰인다.
+
+```mermaid
+flowchart LR
+    A[schema.prisma] -- migrate dev --> B[migrations/*.sql]
+    A -- generate --> C[src/generated/prisma]
+    B --> D[(data/app.db)]
+    B -. 테스트는 이 SQL 을 직접 실행 .-> T[(임시 DB)]
+    C --> E[src/lib/posts.ts<br/>prisma.post.findMany]
+    E --> F[actions.ts · page.tsx<br/>await 만 추가]
+```
+
+### 7-6. `feat/trpc` 브랜치: 주요 변경 파일과 코드
+
+**한 줄 요약**: `src/lib/` 데이터 층은 그대로 두고, 그 위에 tRPC 라우터를 얹어 "브라우저 → 서버" 호출을 타입 안전하게 만들었다. `/client-fetch` 에 tRPC 섹션을 추가하고, `/feed` 와 댓글을 tRPC 로 바꿨다. 글 작성·수정·삭제 Server Action 은 그대로다.
+
+| 파일 | 상태 | 역할 |
+| --- | --- | --- |
+| `src/trpc/init.ts` | 새로 생김 | tRPC 초기화. 컨텍스트(`ctx.user`), `publicProcedure`, `protectedProcedure`(로그인 미들웨어) |
+| `src/trpc/routers/posts.ts` | 새로 생김 | `list`(커서), `search`, `byId`. 입력은 Zod, 구현은 `src/lib/posts.ts` 재사용 |
+| `src/trpc/routers/comments.ts` | 새로 생김 | `list`, `add`(로그인), `remove`(작성자만) |
+| `src/trpc/routers/_app.ts` | 새로 생김 | 라우터 합치기. `export type AppRouter` 가 클라이언트 타입의 출처 |
+| `src/trpc/client.tsx` | 새로 생김 (`query-providers.tsx` 대체) | `TRPCReactProvider`, `useTRPC`. `httpBatchLink` 로 `/api/trpc` 호출 |
+| `src/trpc/server.tsx` | 새로 생김 | 서버 컴포넌트용: `trpc` 옵션 프록시, `prefetch`, `HydrateClient` |
+| `src/trpc/query-client.ts` | 새로 생김 | `QueryClient` 생성 (superjson 직렬화, dehydrate 규칙) |
+| `src/app/api/trpc/[trpc]/route.ts` | 새로 생김 | 모든 프로시저가 지나는 단일 HTTP 엔드포인트 |
+| `src/app/(demos)/client-fetch/post-search-trpc.tsx` | 새로 생김 | 4번째 검색 섹션. 손으로 쓴 응답 타입이 없다 |
+| `src/app/(demos)/feed/post-feed.tsx` | 수정 | `useInfiniteQuery(trpc.posts.list.infiniteQueryOptions(...))` |
+| `src/app/posts/[id]/comments-section.tsx` | 수정 | 서버에서 `prefetch` + `HydrateClient` |
+| `src/app/posts/[id]/comment-threads.tsx` | 새로 생김 | 클라이언트에서 `useQuery` 로 댓글 렌더링 |
+| `src/app/posts/[id]/comment-form.tsx`, `delete-comment-button.tsx` | 수정 | Server Action → `useMutation` + 캐시 무효화 |
+| `src/trpc/router.test.ts` | 새로 생김 | `createCaller` 로 HTTP 없이 프로시저 단위 테스트 |
+
+#### 코드 1. 초기화와 미들웨어 (`src/trpc/init.ts`)
+
+```ts
+export const createTRPCContext = cache(async () => {
+  const user = await getCurrentUser(); // 쿠키 → 세션 → 사용자. 로그아웃이면 null
+  return { user };
+});
+
+const t = initTRPC.context<Context>().create({ transformer: superjson });
+
+export const publicProcedure = t.procedure;
+
+/** 로그인이 필요한 프로시저. 통과하면 ctx.user 가 non-null 로 좁혀진다 */
+export const protectedProcedure = t.procedure.use(({ ctx, next }) => {
+  if (!ctx.user) throw new TRPCError({ code: "UNAUTHORIZED", message: "로그인이 필요합니다." });
+  return next({ ctx: { user: ctx.user } });
+});
+```
+
+main 에서는 Server Action 마다 `const user = await getCurrentUser(); if (!user) ...` 를 반복했다. tRPC 는 이걸 **미들웨어 한 곳** 에 두고, `protectedProcedure` 를 쓰는 프로시저는 `ctx.user` 가 있다고 타입 수준에서 보장받는다.
+
+#### 코드 2. 라우터 = "함수 목록 + 입력 스키마" (`src/trpc/routers/posts.ts`)
+
+```ts
+export const postsRouter = createTRPCRouter({
+  list: publicProcedure
+    .input(z.object({
+      limit: z.number().int().min(1).max(20).default(5),
+      cursor: z.number().int().positive().nullish(),
+      q: z.string().trim().max(100).optional(),
+    }))
+    .query(({ input }) => {
+      const { posts, nextCursor } = getPostsByCursor(input.q ?? "", input.cursor ?? null, input.limit); // 기존 lib 재사용
+      return { posts: posts.map(({ id, title, authorName, imagePath, createdAt }) => ({ id, title, authorName, imagePath, createdAt })), nextCursor };
+    }),
+
+  search: publicProcedure
+    .input(z.object({ q: z.string().trim().max(100).default("") }))
+    .query(({ input }) => ({ query: input.q, total: countPosts(), posts: searchPosts(input.q).map(...) })),
+});
+```
+
+main 의 `/api/posts/route.ts` 는 `request.nextUrl.searchParams.get("limit")` 을 읽어 `Number()` 로 바꾸고 범위를 직접 검사했다. 여기서는 `.input(z.object(...))` 이 그 일을 하고, 클라이언트는 이 스키마의 타입을 그대로 받는다.
+
+#### 코드 3. 단일 엔드포인트 (`src/app/api/trpc/[trpc]/route.ts`)
+
+```ts
+const handler = (req: Request) =>
+  fetchRequestHandler({ endpoint: "/api/trpc", req, router: appRouter, createContext: createTRPCContext });
+
+export { handler as GET, handler as POST };
+```
+
+REST 처럼 URL 마다 파일을 만들지 않는다. `/api/trpc/posts.search?input=...` 처럼 프로시저 이름이 URL 에 들어가고, `httpBatchLink` 는 여러 호출을 요청 하나로 묶는다.
+
+#### 코드 4. 클라이언트 호출: 응답 타입을 손으로 쓰지 않는다
+
+```ts
+// main: src/app/(demos)/client-fetch/post-search-query.tsx
+type SearchResponse = { query: string; total: number; posts: { id: number; title: string; createdAt: string }[] }; // 서버와 어긋나도 모른다
+const { data } = useQuery({ queryKey: ["posts", "search", query], queryFn: () => searchPosts(query) });
+
+// feat/trpc: src/app/(demos)/client-fetch/post-search-trpc.tsx
+const trpc = useTRPC();
+const { data } = useQuery(trpc.posts.search.queryOptions({ q: query }, { placeholderData: keepPreviousData }));
+// data 의 타입은 routers/posts.ts 의 반환값에서 추론된다. 서버가 필드를 바꾸면 여기서 컴파일 에러
+```
+
+#### 코드 5. 서버에서 미리 가져오고 클라이언트가 이어받기 (댓글)
+
+```tsx
+// src/app/posts/[id]/comments-section.tsx (서버 컴포넌트)
+export async function CommentsSection({ postId }: { postId: number }) {
+  const user = await getCurrentUser();
+  prefetch(trpc.comments.list.queryOptions({ postId })); // await 하지 않는다. 결과는 HydrateClient 가 실어 보낸다
+  return (
+    <HydrateClient>
+      <CommentThreads postId={postId} currentUserId={user?.id ?? null} />
+    </HydrateClient>
+  );
+}
+```
+
+```tsx
+// src/app/posts/[id]/comment-form.tsx (클라이언트 컴포넌트)
+const add = useMutation(
+  trpc.comments.add.mutationOptions({
+    onSuccess: () => queryClient.invalidateQueries(trpc.comments.list.queryFilter({ postId })), // 브라우저 캐시 무효화
+    onError: (err) => toast.error(err.message), // TRPCError 의 message 가 그대로 온다
+  }),
+);
+```
+
+main 의 댓글은 서버 컴포넌트가 `getCommentThreads()` 를 렌더링하고, `addCommentAction` 이 `updateTag()` 로 서버 캐시를 지우면 페이지가 다시 렌더링됐다. 여기서는 서버가 첫 데이터를 **미리 채워 넣고**(prefetch + hydrate), 이후 변경은 브라우저의 TanStack Query 캐시가 관리한다.
+
+#### 주의: 프로시저는 Route Handler 컨텍스트에서 실행된다
+
+`updateTag()` 는 Server Action 전용이라 tRPC 뮤테이션 안에서 부르면 에러다. `comments.add` 는 `revalidateTag(commentsTag(postId), { expire: 0 })` 로 서버의 `"use cache"` 항목을 지운다 (5-7 과 같은 이유). 그래서 캐시가 **두 층** 이 된다: 서버의 `"use cache"`(revalidateTag 로 관리)와 브라우저의 TanStack Query 캐시(invalidateQueries 로 관리). 둘 다 지워야 화면과 서버가 함께 새 값을 본다.
+
+```mermaid
+sequenceDiagram
+    participant C as 브라우저 (useMutation)
+    participant R as /api/trpc (Route Handler)
+    participant P as comments.add 프로시저
+    participant L as src/lib/comments.ts
+    C->>R: POST comments.add { postId, content }
+    R->>P: ctx = { user }  (protectedProcedure 가 로그인 확인)
+    P->>L: createComment(...)
+    P->>P: revalidateTag(post-3-comments)  ← 서버 캐시
+    P-->>C: 새 댓글 id
+    C->>C: invalidateQueries(comments.list)  ← 브라우저 캐시
+    C->>R: GET comments.list (자동 재요청)
+```
+
+#### 코드 6. HTTP 없이 프로시저 테스트 (`src/trpc/router.test.ts`)
+
+```ts
+const createCaller = createCallerFactory(appRouter);
+const anon = createCaller({ user: null }); // 가짜 컨텍스트: 로그아웃 상태
+await expect(anon.posts.byId({ id: 99999 })).rejects.toMatchObject({ code: "NOT_FOUND" });
+await expect(anon.posts.list({ limit: 999 })).rejects.toMatchObject({ code: "BAD_REQUEST" }); // Zod 입력 검증
+await expect(anon.comments.add({ postId: 1, content: "x" })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+```
+
+`createCaller` 는 라우터를 일반 함수처럼 부른다. Route Handler, fetch, 브라우저 없이 입력 검증·권한·2단 댓글 규칙을 검증할 수 있다. main 의 Server Action 은 `useActionState` 와 폼에 묶여 있어 이런 단위 테스트가 어렵다.
+
 ---
 
 ## 빌드 결과 읽는 법
