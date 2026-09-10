@@ -142,7 +142,7 @@ Next.js 16 에서는 ISR 을 별도 설정이 아니라 `"use cache"` + `cacheLi
 | 26 | 리다이렉트: `redirects` 설정, `redirect()`, `permanentRedirect()` | `next.config.ts`, `src/app/p/[id]/page.tsx` |
 | 27 | 공개 API 설계: 버전 경로, 응답 봉투, 에러 코드 | `src/lib/api/http.ts`, `src/app/api/v1/`, Part 5 |
 | 28 | Bearer 인증: 액세스 토큰(JWT) vs API 키(해시 저장) | `src/lib/api/auth.ts`, `src/lib/api-keys.ts` |
-| 29 | 레이트 리밋과 CORS | `src/lib/api/rate-limit.ts`, `src/proxy.ts` |
+| 29 | 레이트 리밋과 CORS | `src/lib/api/rate-limit.ts`(5-6), `src/proxy.ts`(5-10) |
 | 30 | Route Handler 의 캐시 무효화 (`updateTag` 를 못 쓰는 이유) | `src/app/api/v1/posts/route.ts` |
 | 31 | OpenAPI 명세로 API 문서화 | `src/lib/api/openapi.ts`, `/api/v1/openapi.json` |
 
@@ -698,6 +698,33 @@ curl -s -o /dev/null -w "%{http_code}\n" -X DELETE $B/api/v1/posts/$ID \
 curl -s $B/api/v1/posts/$ID | jq                                    # not_found
 ```
 
+#### 응답 헤더 보는 법 (모든 단계에 적용)
+
+위 명령들은 본문(JSON)만 보여 준다. 상태 코드, `Content-Type`, `X-RateLimit-*` 같은 헤더까지 보려면 curl 옵션을 더한다.
+
+```bash
+# 헤더만: -D - 로 헤더를 화면에 쓰고, -o /dev/null 로 본문은 버린다
+curl -s -D - -o /dev/null "$B/api/v1/posts?limit=2"
+
+# 헤더 + 본문을 한 번에 (단, 이 상태로 | jq 를 붙이면 헤더 때문에 파싱이 깨진다)
+curl -s -i "$B/api/v1/posts?limit=2"
+
+# 헤더는 stderr 로, 본문만 jq 로 → 화면에는 둘 다 보이고 jq 도 정상 동작
+curl -s -D /dev/stderr "$B/api/v1/posts?q=스트리밍" | jq '.data[] | {id, title}'
+
+# 보낸 요청(>)과 받은 응답(<) 헤더 전부. Authorization 이 제대로 붙었는지 볼 때
+curl -s -v -H "Authorization: Bearer $TOKEN" $B/api/v1/auth/me 2>&1 | grep "^[<>]"
+
+# 특정 헤더만 골라서
+curl -s -D - -o /dev/null "$B/api/v1/posts?limit=2" | grep -i "ratelimit\|content-type\|cache-control"
+
+# 추천 조합: 헤더와 상태 줄은 stderr, 본문만 jq 로.
+# -w 출력은 기본적으로 stdout(본문 뒤)에 붙어 jq 를 깨뜨리므로 %{stderr} 로 stderr 로 보낸다
+curl -s -w "%{stderr}--- status: %{http_code}  time: %{time_total}s\n" -D /dev/stderr "$B/api/v1/posts?limit=2" | jq
+```
+
+`-I` 는 HEAD 요청을 보내므로 GET 과 응답이 다를 수 있다. 헤더만 볼 때도 `-D - -o /dev/null` 쪽이 안전하다.
+
 #### 13. 레이트 리밋 헤더와 OpenAPI 명세
 
 ```bash
@@ -844,12 +871,72 @@ export const GET = apiRoute(async ({ request, params, auth }) => { ... });
   원인은 서버 로그에만 남기고 클라이언트에는 일반적인 문구만 준다.
 - **`unstable_rethrow(error)`** 를 catch 맨 앞에 둔다. Next.js 내부 제어용 에러까지 삼키지 않기 위해서다.
 
-레이트 리밋은 익명 60회/분, 인증 600회/분이고 `X-RateLimit-Limit / -Remaining / -Reset` 헤더로 알려 준다.
-초과하면 429 + `Retry-After`. 구현은 프로세스 메모리 기반이라 서버가 여러 대면 각자 센다
-(실제 서비스에서는 Redis 나 호스팅 업체 기능을 쓴다). 여기서는 "공개 API 라면 상한이 반드시 있어야 한다" 는 것과
-헤더 규약을 보여 주는 게 목적이다.
+레이트 리밋의 개념과 구현은 바로 아래 5-6 에서 따로 다룬다.
 
-### 5-6. Route Handler 에서는 `updateTag` 를 못 쓴다
+### 5-6. 레이트 리밋 (`src/lib/api/rate-limit.ts`)
+
+**레이트 리밋(rate limit)** 은 "한 사용자가 일정 시간 안에 API 를 몇 번까지 부를 수 있는지" 의 상한이다.
+공개 API 는 누가 얼마나 부를지 통제할 수 없으므로, 상한이 없으면 이런 일이 생긴다.
+
+- 무한 루프에 빠진 클라이언트 하나가 서버를 마비시킨다.
+- 비밀번호 대입 공격이나 데이터 긁어가기를 무제한으로 할 수 있다.
+- 한 사용자 때문에 다른 모든 사용자가 느려진다.
+
+그래서 **공개 API 라면 반드시 상한이 있어야 한다.** GitHub API 가 비인증 사용자에게 시간당 60회를 주는 것도 같은 이유고,
+`/releases` 페이지에서 GitHub 응답을 1시간 캐시한 것은 그 한도를 아끼기 위해서였다.
+
+#### 이 프로젝트의 규칙
+
+| 항목 | 값 | 어디서 |
+| --- | --- | --- |
+| 창(window) | 60초. 지나면 카운터가 0 으로 돌아간다 | `WINDOW_SECONDS` |
+| 비로그인 한도 | 분당 60회, **IP 주소** 기준 (`ip:1.2.3.4`) | `ANONYMOUS_LIMIT` (`route.ts`) |
+| 로그인 한도 | 분당 600회, **사용자 id** 기준 (`user:3`) | `AUTHENTICATED_LIMIT` (`route.ts`) |
+| 초과하면 | 429 `rate_limited` + `Retry-After` 헤더(몇 초 뒤 다시 시도할지) | `apiRoute()` 래퍼 |
+
+카운터를 나누는 기준을 **identity** 라고 부른다. 그래서 래퍼는 인증을 먼저 하고 레이트 리밋을 나중에 한다.
+누구인지 알아야 사용자 단위로 셀 수 있고, 로그인 사용자에게 10배를 주는 것은 책임을 물을 수 있는 상대이기 때문이다.
+
+#### 응답 헤더로 상태를 알려 준다
+
+모든 `/api/v1` 응답에 아래 헤더가 붙는다. 클라이언트는 이걸 보고 "남은 게 적으니 천천히 보내자" 같은 판단을 할 수 있다.
+
+```
+X-RateLimit-Limit: 60          ← 이 창에서 허용되는 총 횟수
+X-RateLimit-Remaining: 53      ← 남은 횟수
+X-RateLimit-Reset: 1789...     ← 창이 초기화되는 시각 (Unix 초)
+Retry-After: 37                ← 429 일 때만. 이 초만큼 기다렸다가 재시도하는 것이 관례
+```
+
+브라우저 JS 가 이 헤더를 읽으려면 CORS 의 `Access-Control-Expose-Headers` 에 올라 있어야 한다 (5-10 참고).
+
+#### 직접 확인해 보기
+
+비로그인으로 1분 안에 61번 부르면 마지막 요청이 429 가 된다.
+
+```bash
+for i in $(seq 1 61); do curl -s -o /dev/null -w "%{http_code} " "$B/api/v1/posts?limit=1"; done; echo
+curl -s -D - -o /dev/null "$B/api/v1/posts?limit=1" | grep -i "retry-after\|ratelimit"
+```
+
+1분 기다리거나 서버를 재시작하면 풀린다.
+
+#### 구현 방식과 한계 (학습용)
+
+`checkRateLimit(identity, limit)` 은 **고정 창(fixed window)** 방식이다. identity 마다 `{ count, resetAt }` 을
+`Map` 에 두고, 창이 지났으면 새로 시작하고 아니면 count 를 올린다. 코드가 40줄이라 원리를 보기에 좋지만 실제 서비스에는 부족하다.
+
+| 한계 | 이유 | 실제 서비스에서는 |
+| --- | --- | --- |
+| 서버가 여러 대면 각자 센다 | 카운터가 프로세스 메모리에만 있다 | Redis 같은 공유 저장소, 또는 Vercel · Cloudflare 등 호스팅 업체의 레이트 리밋 기능 |
+| 창 경계에서 순간 2배까지 통과한다 | 59초에 60회, 61초에 60회가 모두 허용된다 | 슬라이딩 윈도, 토큰 버킷 알고리즘 |
+| 재시작하면 카운터가 사라진다 | 메모리 기반 | 위와 같음 |
+| IP 기준은 회사·학교처럼 NAT 뒤의 여러 사람을 한 명으로 본다 | 어쩔 수 없는 한계 | 로그인을 유도해 사용자 단위로 세도록 한다 |
+
+`pruneExpired` 는 만료된 항목을 가끔 지운다. 안 하면 한 번이라도 접속한 IP 마다 항목이 남아 메모리가 계속 는다.
+단위 테스트(`rate-limit.test.ts`)는 `now` 를 인자로 넘겨 시계를 조작하지 않고 창 만료를 검증한다.
+
+### 5-7. Route Handler 에서는 `updateTag` 를 못 쓴다
 
 Part 2 에서 Server Action 은 `updateTag("posts")` 로 캐시를 즉시 만료시켰다.
 그런데 **`updateTag` 는 Server Action 전용이라 Route Handler 에서 호출할 수 없다** (Next.js 16).
@@ -870,7 +957,7 @@ API 로 방금 글을 쓴 클라이언트가 바로 이어서 목록을 읽는 �
 `/todos` 화면은 `"use cache"` 가 아니라 `revalidatePath("/todos")` 로 갱신한다(Part 1과 같은 방식).
 Route Handler 에서 부르면 "다음에 그 경로를 방문할 때" 다시 렌더링된다.
 
-### 5-7. 캐시되지 않는 조회 함수를 따로 둔 이유
+### 5-8. 캐시되지 않는 조회 함수를 따로 둔 이유
 
 화면용 `getPosts()`, `getPost()` 는 `"use cache"` 라서 최대 1분~1시간 낡은 값을 줄 수 있다.
 화면은 그래도 괜찮지만, **API 클라이언트는 방금 POST 로 만든 글이 바로 이어서 GET 되기를 기대한다.**
@@ -880,7 +967,7 @@ SQL 은 여전히 `src/lib/` 안에만 있다.
 댓글 목록은 화면(`getCommentThreads`)과 달리 **평탄한 배열 + `parentId`** 로 준다.
 트리를 잘라서 페이지네이션하면 "부모 없는 답글" 이 생기기 때문이다. 조립은 클라이언트 몫으로 남긴다.
 
-### 5-8. `serialize` — DB 행을 그대로 내보내지 않는다
+### 5-9. `serialize` — DB 행을 그대로 내보내지 않는다
 
 `src/lib/api/serialize.ts` 가 내부 타입을 공개 JSON 모양으로 바꾼다. 한 겹을 두는 이유는 세 가지다.
 
@@ -891,7 +978,7 @@ SQL 은 여전히 `src/lib/` 안에만 있다.
 글 작성자는 `{ id, name }` 만 준다. 공개 목록에 남의 이메일이 보이면 안 되기 때문이다.
 반면 `/auth/me` 는 본인 정보라서 이메일을 포함한다.
 
-### 5-9. CORS 는 `proxy.ts` 한 곳에서
+### 5-10. CORS 는 `proxy.ts` 한 곳에서
 
 라우트마다 헤더를 붙이면 빠뜨리기 쉽다. 프리플라이트(`OPTIONS`) 응답과 CORS 헤더를 proxy 에서 한 번에 처리한다.
 
@@ -905,7 +992,7 @@ if (pathname.startsWith("/api/v1")) {
 `Access-Control-Expose-Headers` 를 지정해야 브라우저 JS 가 `X-RateLimit-*` 을 읽을 수 있다.
 기본적으로 JS 는 몇 개 안 되는 헤더만 볼 수 있기 때문이다.
 
-### 5-10. 빌드 결과에서 확인하기
+### 5-11. 빌드 결과에서 확인하기
 
 `npm run build` 표에서 `/api/v1` 과 `/api/v1/openapi.json` 만 `○ (Static)` 이다.
 두 라우트는 요청 정보를 전혀 읽지 않아서 빌드 시점에 미리 만들어진다.
