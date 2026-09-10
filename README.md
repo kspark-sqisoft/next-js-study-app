@@ -1666,6 +1666,24 @@ git switch main && npm install   # 돌아올 때도 마찬가지
 세 브랜치는 같은 `data/app.db` 파일을 공유한다 (Prisma 브랜치는 기존 테이블 이름을 그대로 쓰도록 매핑했다).
 Prisma 브랜치가 남긴 `_prisma_migrations` 테이블은 main 에서 무시된다.
 
+**나란히 열어 비교하려면 `git worktree`.** 브랜치를 오가는 대신 브랜치마다 폴더를 하나씩 체크아웃해 두면 에디터에서 세 폴더를 동시에 열 수 있다.
+
+```bash
+# 저장소 옆에 형제 폴더로 체크아웃 (각 폴더가 독립된 작업 디렉터리, .git 은 공유)
+git worktree add ../next-js-study-app-prisma feat/prisma
+git worktree add ../next-js-study-app-trpc feat/trpc
+git worktree list
+
+# 각 폴더는 node_modules 와 data/ 가 따로 있으므로 처음 한 번 설치와 시드가 필요하다
+cp .env ../next-js-study-app-prisma/.env && cp .env ../next-js-study-app-trpc/.env
+(cd ../next-js-study-app-prisma && npm install && npm run db:migrate && npm run db:seed)
+(cd ../next-js-study-app-trpc && npm install && npm run db:seed)
+```
+
+VS Code 에서는 `~/Dev/next-js-study.code-workspace` 파일(세 폴더를 묶은 멀티 루트 워크스페이스)을 열면 한 창에 `main`, `feat/prisma`, `feat/trpc` 가 나란히 보인다. 같은 파일을 두 폴더에서 열어 "Compare Selected" 로 diff 를 볼 수 있다.
+워크트리 폴더 안에서 커밋하면 그 브랜치에 커밋된다. 폴더를 지울 때는 `rm` 이 아니라 `git worktree remove <폴더>` 를 쓴다.
+`git worktree` 로 체크아웃된 브랜치는 원래 폴더에서 `git switch` 로 옮길 수 없다(같은 브랜치를 두 곳에 체크아웃하지 못한다). 그때는 워크트리를 지우거나 그 폴더에서 작업한다.
+
 ---
 
 ## 빌드 결과 읽는 법
