@@ -1,5 +1,6 @@
-// 무한 스크롤 목록 (클라이언트 컴포넌트).
-// - useInfiniteQuery: 페이지들을 배열로 쌓아 두고, getNextPageParam 으로 다음 요청의 커서를 정한다.
+// 무한 스크롤 목록 (클라이언트 컴포넌트) — tRPC 버전.
+// - useInfiniteQuery + trpc.posts.list.infiniteQueryOptions: 페이지들을 배열로 쌓고, getNextPageParam 으로 다음 커서를 정한다.
+//   main 브랜치의 fetch("/api/posts?cursor=…") 와 FeedPage 타입 정의가 사라지고, 타입은 라우터에서 온다.
 // - IntersectionObserver: 목록 끝의 sentinel 요소가 화면에 들어오면 다음 페이지를 요청한다.
 // - 서버가 준 첫 페이지를 initialData 로 넣어 "처음부터 빈 화면 → 로딩" 을 피한다.
 "use client";
@@ -9,24 +10,12 @@ import Link from "next/link";
 import { io } from "next/cache";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import { useTRPC } from "@/trpc/client";
 
-export type FeedItem = {
-  id: number;
-  title: string;
-  authorName: string | null;
-  imagePath: string | null;
-  createdAt: string;
-};
-
-type FeedPage = { posts: FeedItem[]; nextCursor: number | null };
-
-async function fetchFeedPage(cursor: number | null, limit: number): Promise<FeedPage> {
-  const params = new URLSearchParams({ limit: String(limit) });
-  if (cursor !== null) params.set("cursor", String(cursor));
-  const res = await fetch(`/api/posts?${params}`);
-  if (!res.ok) throw new Error(`요청 실패: ${res.status}`);
-  return res.json();
-}
+// 목록 항목 타입은 라우터의 반환 타입에서 뽑는다 (손으로 적지 않는다)
+import type { inferRouterOutputs } from "@trpc/server";
+import type { AppRouter } from "@/trpc/routers/_app";
+export type FeedItem = inferRouterOutputs<AppRouter>["posts"]["list"]["posts"][number];
 
 type Props = { initialPosts: FeedItem[]; initialCursor: number | null; pageSize: number };
 
@@ -36,15 +25,19 @@ export function PostFeed({ initialPosts, initialCursor, pageSize }: Props) {
   // (부모 Suspense 의 fallback 이 셸에 들어간다), 실제 요청과 브라우저에서는 즉시 resolve 된다.
   use(io());
 
-  const { data, error, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery({
-    queryKey: ["posts", "feed"],
-    queryFn: ({ pageParam }) => fetchFeedPage(pageParam, pageSize),
-    initialPageParam: null as number | null,
-    getNextPageParam: (lastPage) => lastPage.nextCursor, // null 이면 hasNextPage 가 false
-    // 서버가 렌더링한 첫 페이지. pageParams 는 각 페이지를 요청할 때 쓴 커서 (첫 페이지는 null)
-    initialData: { pages: [{ posts: initialPosts, nextCursor: initialCursor }], pageParams: [null] },
-    staleTime: 60 * 1000, // 뒤로 갔다 와도 1분간은 다시 요청하지 않는다
-  });
+  const trpc = useTRPC();
+  const { data, error, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery(
+    trpc.posts.list.infiniteQueryOptions(
+      { limit: pageSize }, // cursor 는 tRPC 가 pageParam 으로 채워 넣는다
+      {
+        initialCursor: null,
+        getNextPageParam: (lastPage) => lastPage.nextCursor, // null 이면 hasNextPage 가 false
+        // 서버가 렌더링한 첫 페이지. pageParams 는 각 페이지를 요청할 때 쓴 커서 (첫 페이지는 null)
+        initialData: { pages: [{ posts: initialPosts, nextCursor: initialCursor }], pageParams: [null] },
+        staleTime: 60 * 1000, // 뒤로 갔다 와도 1분간은 다시 요청하지 않는다
+      },
+    ),
+  );
 
   // sentinel: 목록 맨 아래의 빈 div. 화면에 보이면 다음 페이지 요청
   const sentinelRef = useRef<HTMLDivElement>(null);

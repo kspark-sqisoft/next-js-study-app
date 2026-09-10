@@ -3,7 +3,7 @@
 // 구성:
 // - 첫 페이지는 서버 컴포넌트가 캐시된 getPostsPage("", 1) 로 렌더링한다.
 //   PostFeed 는 프리렌더 중 suspend 하므로(use(io())), 같은 목록을 정적 fallback 으로도 그려 셸에 넣는다.
-// - 이후 페이지는 브라우저가 /api/posts?cursor=&limit= 를 호출한다 (TanStack Query useInfiniteQuery).
+// - 이후 페이지는 브라우저가 tRPC(trpc.posts.list)를 호출한다 (TanStack Query useInfiniteQuery). main 브랜치는 /api/posts?cursor= 를 fetch 했다.
 // - /posts 의 "번호 페이지네이션(offset)" 과 비교해 보자. 둘 다 같은 데이터, 다른 UX 다.
 import type { Metadata } from "next";
 import { Suspense } from "react";
@@ -25,8 +25,8 @@ export default async function FeedPage() {
     <div className="space-y-4">
       <h1 className="text-xl font-semibold">무한 스크롤</h1>
       <p className="text-xs text-muted-foreground">
-        첫 {PAGE_SIZE}개는 서버가 렌더링했고(캐시), 아래로 내리면 브라우저가 <code>/api/posts?cursor=…</code> 를
-        호출해 이어 붙인다. 커서(마지막 id) 방식이라 중간에 글이 추가돼도 중복이 생기지 않는다.
+        첫 {PAGE_SIZE}개는 서버가 렌더링했고(캐시), 아래로 내리면 브라우저가 <code>trpc.posts.list</code> 를
+        호출해 이어 붙인다 (Network 탭에서 <code>/api/trpc/posts.list</code>). 커서(마지막 id) 방식이라 중간에 글이 추가돼도 중복이 생기지 않는다.
       </p>
       {/* 정적 셸: fallback 의 첫 페이지 목록. 요청 시/브라우저에서는 상호작용하는 PostFeed 로 교체된다 */}
       <Suspense fallback={<StaticList posts={initialPosts} />}>

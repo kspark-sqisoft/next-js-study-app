@@ -102,7 +102,8 @@ test("무한 스크롤: 끝에 닿으면 다음 글을 불러오고, 다 읽으�
   const links = page.locator("ul a[href^='/posts/']");
   await expect(links).toHaveCount(5); // 서버가 렌더링한 첫 페이지 (시드 6개 중 5개)
 
-  const nextPage = page.waitForResponse((r) => r.url().includes("/api/posts?") && r.url().includes("cursor="));
+  // feat/trpc: 다음 페이지 요청은 /api/trpc/posts.list 로 간다 (main 은 /api/posts?cursor=)
+  const nextPage = page.waitForResponse((r) => r.url().includes("/api/trpc/posts.list"));
   await page.locator("div[aria-hidden].h-1").scrollIntoViewIfNeeded(); // sentinel 을 화면에 넣는다
   await nextPage;
   // 앞선 테스트가 남긴 글이 있을 수 있으므로 정확한 개수 대신 "늘어났다" 와 "끝 안내" 를 본다

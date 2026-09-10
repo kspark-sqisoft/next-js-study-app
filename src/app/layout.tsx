@@ -9,6 +9,7 @@ import { RecentlyViewedBadge } from "@/components/recently-viewed-badge";
 import { StoreHydrator } from "@/components/store-hydrator";
 import { Toaster } from "@/components/ui/sonner";
 import { UserMenu } from "@/components/user-menu";
+import { TRPCReactProvider } from "@/trpc/client";
 
 // Google Fonts 를 빌드 시 다운로드해 셀프 호스팅. CSS 변수로 노출된다.
 const geistSans = Geist({
@@ -35,6 +36,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
+        {/* tRPC + TanStack Query Provider. 댓글(/posts/[id])과 데모 페이지가 모두 쓰므로 루트에 둔다 */}
+        <TRPCReactProvider>
         <header className="flex items-center justify-between border-b px-6 py-3">
           <nav className="flex items-center gap-4 text-sm">
             <Link href="/" className="font-semibold">Next.js Study</Link>
@@ -54,6 +57,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <Toaster />
         {/* persist 스토어(최근 본 글)를 마운트 후 localStorage 에서 복원 */}
         <StoreHydrator />
+        </TRPCReactProvider>
       </body>
     </html>
   );

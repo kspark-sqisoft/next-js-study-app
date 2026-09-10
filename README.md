@@ -1651,10 +1651,81 @@ tRPC 가 여전히 필요한 곳은 Server Action 이 못 하는 것들이다.
 | 브랜치 | 내용 | 비교해서 볼 파일 |
 | --- | --- | --- |
 | `main` | 직접 SQL (`node:sqlite`) + Server Action | `src/lib/*.ts`, `src/lib/schema.ts` |
+| (지금 보고 있는 브랜치가 `feat/trpc` 라면 바로 아래 "브랜치 feat/trpc 에서 달라진 점" 절이 있다) | | |
 | `feat/prisma` | 데이터 층을 Prisma 로 교체. 스키마 파일, 자동 생성 타입, 마이그레이션 | `prisma/schema.prisma`, `src/lib/*.ts` (같은 함수 이름, 다른 구현) |
 | `feat/trpc` | 클라이언트 페칭(`/client-fetch`, `/feed`)과 댓글을 tRPC 로 교체. 서버 라우터 하나에서 타입이 끝까지 흐른다 | `src/server/trpc/`, `src/app/(demos)/**`, 댓글 컴포넌트 |
 
 각 브랜치의 README 에는 그 브랜치에서 달라진 점만 따로 정리한 절이 있다.
+
+---
+
+## 브랜치 feat/trpc 에서 달라진 점
+
+이 브랜치는 `main` 위에 tRPC v11 을 얹어 **브라우저 ↔ 서버 호출 세 곳** 을 바꿨다. 데이터 접근 코드(`src/lib/*.ts`)와 글 작성/수정/삭제 Server Action 은 그대로다. `git diff main..feat/trpc --stat` 으로 범위를 보고, 아래 표의 파일을 `main` 과 나란히 열어 비교한다.
+
+### 추가된 파일 (`src/trpc/`)
+
+| 파일 | 역할 |
+| --- | --- |
+| `init.ts` | `createTRPCContext`(세션 → `ctx.user`), `publicProcedure`, `protectedProcedure`(로그인 미들웨어), superjson transformer |
+| `routers/posts.ts` | `list`(커서 페이지네이션), `search`, `byId` — 조회 프로시저. 구현은 기존 `src/lib/posts.ts` 함수 호출 |
+| `routers/comments.ts` | `list`, `add`, `remove` — 변경은 `protectedProcedure`. 2단 규칙과 소유권 검사는 Server Action 버전과 같다 |
+| `routers/_app.ts` | 하위 라우터를 묶은 `appRouter` 와 `AppRouter` **타입**. 이 타입만 브라우저로 건너간다 |
+| `query-client.ts` | TanStack `QueryClient` 공장 함수 (서버는 요청마다, 브라우저는 하나) |
+| `client.tsx` | `TRPCReactProvider`, `useTRPC` — 클라이언트 컴포넌트가 쓰는 훅. `httpBatchLink` 로 `/api/trpc` 호출 |
+| `server.tsx` | `trpc`(서버에서 라우터 직접 호출 프록시), `prefetch`, `HydrateClient` — 서버 컴포넌트용 |
+| `router.test.ts` | `createCaller` 로 HTTP 없이 프로시저를 함수처럼 호출하는 단위 테스트 |
+| `src/app/api/trpc/[trpc]/route.ts` | HTTP 입구. 모든 브라우저 호출이 여기로 온다 (일반 Route Handler 규약) |
+
+`src/components/query-providers.tsx` 는 삭제했다. `QueryClientProvider` 가 `TRPCReactProvider` 안으로 들어가 루트 레이아웃에 놓였다.
+
+### 호출이 흐르는 길
+
+```mermaid
+flowchart LR
+    C["클라이언트 컴포넌트<br/>useQuery(trpc.comments.list.queryOptions({postId}))"]
+    C -- "HTTP (httpBatchLink)" --> R["/api/trpc/[trpc]/route.ts<br/>fetchRequestHandler"]
+    R --> X["createTRPCContext<br/>쿠키 → ctx.user"]
+    X --> P["routers/comments.ts<br/>list 프로시저 (.input zod 검증)"]
+    P --> L["src/lib/comments.ts<br/>getCommentThreads ('use cache')"]
+    L --> D[(SQLite)]
+    M["useMutation(trpc.comments.add.mutationOptions())"] -- HTTP --> R
+    R --> A["add 프로시저<br/>protectedProcedure → createComment"]
+    A --> T["revalidateTag(commentsTag, {expire:0})<br/>서버 캐시 무효화"]
+    A -. onSuccess .-> I["queryClient.invalidateQueries(trpc.comments.list.queryFilter())<br/>브라우저 캐시 무효화 → 목록 재요청"]
+    S["서버 컴포넌트 comments-section.tsx<br/>prefetch(trpc.comments.list.queryOptions())"] -- "HTTP 없이 직접 호출" --> P
+    S --> H["HydrateClient<br/>채운 캐시를 브라우저로"]
+```
+
+타입은 반대 방향으로 흐른다: `routers/*.ts` 의 `.input(zod)` 와 반환값 → `AppRouter` 타입 → `useTRPC()` → 컴포넌트의 `data`. 서버에서 필드 이름을 바꾸면 컴포넌트가 컴파일 에러로 알려 준다.
+
+### 바뀐 기능 비교
+
+| 기능 | main (전) | feat/trpc (후) | 비교 포인트 |
+| --- | --- | --- | --- |
+| `/client-fetch` 검색 | 1~3 번: `fetch("/api/posts?q=")` + 손으로 적은 `SearchResponse` 타입 | **4 번 섹션 추가**: `useQuery(trpc.posts.search.queryOptions({ q }))`. fetch 함수, URL, 응답 타입 없음 | `post-search-query.tsx` vs `post-search-trpc.tsx` 를 나란히 |
+| `/feed` 무한 스크롤 | `fetch("/api/posts?cursor=&limit=")` + `FeedPage` 타입 | `useInfiniteQuery(trpc.posts.list.infiniteQueryOptions({ limit }, { getNextPageParam, initialCursor: null, initialData }))`. `FeedItem` 타입은 `inferRouterOutputs<AppRouter>` 로 추출 | `post-feed.tsx`. 서버 첫 페이지 `initialData` 와 `use(io())` 는 그대로 |
+| 댓글 목록 | 서버 컴포넌트가 `getCommentThreads()` 를 await 해서 그림 | 서버 컴포넌트가 `prefetch` + `HydrateClient`, 클라이언트 `CommentThreads` 가 `useQuery` 로 그림 (첫 렌더링에 로딩 없음) | `comments-section.tsx` + 새 `comment-threads.tsx` |
+| 댓글 작성 | `useActionState` + Server Action `addCommentAction` + `updateTag` | `useMutation(trpc.comments.add.mutationOptions({ onSuccess: invalidateQueries }))`. 검증은 `.input(zod)`, 로그인은 미들웨어 | `comment-form.tsx`, `routers/comments.ts` vs `actions.ts` |
+| 댓글 삭제 | Server Action `deleteCommentAction` | `useMutation(trpc.comments.remove.mutationOptions())`, 소유권 검사는 프로시저 안 | `delete-comment-button.tsx` |
+
+### 그대로인 것
+
+- `src/lib/*.ts` 의 SQL 과 `"use cache"` 함수. tRPC 는 **전송 층** 이라 데이터 접근은 건드리지 않는다.
+- 글 작성/수정/삭제, 로그인/가입, todos 의 Server Action. "폼 제출로 데이터를 바꾸는 일" 은 Server Action 이 더 단순하다는 것을 비교하기 위해 남겼다.
+- `/api/posts`, `/api/v1` REST API. 외부 개발자용 API 는 tRPC 클라이언트가 없어도 부를 수 있어야 하므로 REST 가 맞다.
+- E2E 명세는 한 줄만 바뀌었다 (무한 스크롤이 기다리는 요청 URL). 화면의 문구와 동작이 같기 때문이다.
+
+### 주의: tRPC 프로시저는 Route Handler 컨텍스트에서 실행된다
+
+`/api/trpc/[trpc]/route.ts` 가 일반 Route Handler 이므로, 프로시저 안에서 `updateTag` 를 부르면 에러가 난다(Server Action 전용, README 5-7). 댓글 추가/삭제는 `revalidateTag(commentsTag(postId), { expire: 0 })` 로 서버 캐시를 즉시 만료시킨다. 브라우저 쪽 TanStack 캐시는 별개라서 `onSuccess` 의 `invalidateQueries` 가 따로 필요하다. **캐시가 두 층(서버 `"use cache"`, 브라우저 QueryClient)이라 둘 다 무효화해야 한다** 는 점이 Server Action 버전(`revalidatePath` 하나로 끝)과 다른 부담이다.
+
+### 이 브랜치에서 배울 것
+
+1. **타입이 끝까지 흐른다**: `routers/posts.ts` 의 반환 객체에 필드를 하나 추가해 보고 `post-search-trpc.tsx` 에서 자동완성이 되는지 본다. 반대로 필드를 지우면 컴파일이 깨진다. `post-search-query.tsx`(fetch 버전)는 둘 다 조용하다.
+2. **프로시저는 그냥 함수다**: `router.test.ts` 처럼 `createCaller({ user })` 로 HTTP 없이 부른다. Server Action 은 이렇게 부르기 어렵다.
+3. **미들웨어로 공통 규칙을 뺀다**: `protectedProcedure` 하나로 로그인 검사가 모든 변경 프로시저에 붙는다. Server Action 은 액션마다 `getCurrentUser()` 를 쓴다.
+4. **그래도 App Router 에서 tRPC 가 꼭 필요한가**: 이 앱에서는 아니다. Part 7-2 의 기준(클라이언트 페칭이 많은 화면, 두 번째 클라이언트)에 해당할 때 꺼낸다.
 
 ---
 
@@ -1754,7 +1825,7 @@ src/
       layout.tsx    # 공용 네비게이션 + TanStack Query Provider
       template.tsx  # 세그먼트가 바뀔 때마다 재마운트 (진입 애니메이션)
       feed/         # /feed 무한 스크롤 (page.tsx: 첫 페이지 서버 렌더링, post-feed.tsx: useInfiniteQuery + IntersectionObserver)
-      client-fetch/ # /client-fetch 클라이언트 페칭 3종 비교 (post-count: fetch, post-search: SWR, post-search-query: TanStack Query)
+      client-fetch/ # /client-fetch 클라이언트 페칭 4종 비교 (post-count: fetch, post-search: SWR, post-search-query: TanStack Query, post-search-trpc: tRPC)
       releases/     # /releases 외부 API + use() (page.tsx: Promise 전달, release-list.tsx: use() 로 읽기)
     posts/
       layout.tsx    # 공용 네비게이션 + @modal 슬롯 렌더링
@@ -1773,8 +1844,9 @@ src/
         not-found.tsx     # notFound() 결과
         other-posts.tsx   # 1.5초 지연 스트리밍
         post-owner-actions.tsx  # 작성자에게만 수정/삭제 (Suspense 안)
-        comments-section.tsx    # 2단 댓글 (캐시된 목록 + 현재 사용자)
-        comment-form.tsx, reply-toggle.tsx, delete-comment-button.tsx
+        comments-section.tsx    # 2단 댓글: tRPC prefetch + HydrateClient (feat/trpc)
+        comment-threads.tsx     # useQuery 로 그리는 클라이언트 목록 (feat/trpc)
+        comment-form.tsx, reply-toggle.tsx, delete-comment-button.tsx  # useMutation (feat/trpc)
         edit/page.tsx     # 글 수정 (작성자만, 이미지 교체/삭제)
         recently-viewed.tsx        # localStorage 위젯 (브라우저 전용)
         recently-viewed-loader.tsx # next/dynamic ssr:false 래퍼
@@ -1784,6 +1856,7 @@ src/
       todos/route.ts  # REST API 예시 (내부용, 데모 화면이 사용)
       posts/route.ts  # 검색 API (?q=) / 커서 페이지 API (?cursor=&limit=) — 내부용
       uploads/[name]/route.ts  # 업로드 이미지 파일 응답
+      trpc/[trpc]/route.ts     # tRPC HTTP 입구 (feat/trpc)
       v1/             # 공개 API (Part 5). 외부 개발자용 계약, 버전 고정
         route.ts              # 진입점 (정적. 엔드포인트 목록)
         openapi.json/route.ts # OpenAPI 3.1 명세 (정적)
@@ -1795,6 +1868,7 @@ src/
         comments/[id]/route.ts               # 댓글 삭제
         todos/route.ts, todos/[id]/route.ts
         */*.test.ts   # 라우트 핸들러를 직접 호출하는 테스트
+  trpc/             # feat/trpc: init, routers/, client.tsx, server.tsx, query-client.ts, router.test.ts
   hooks/
     use-debounced-callback.ts # 디바운스 훅 (직접 구현)
   stores/           # zustand 스토어 (Part 6)
@@ -1806,7 +1880,6 @@ src/
     recently-viewed-badge.tsx # 헤더 배지 (스토어 구독)
     modal.tsx       # 라우트 모달 껍데기 (router.back 으로 닫기)
     posts-nav.tsx   # /posts 와 (demos) 가 공유하는 네비게이션
-    query-providers.tsx  # QueryClientProvider + DevTools
     user-menu.tsx   # 헤더 로그인 상태 (서버 컴포넌트)
   lib/
     schema.ts       # 테이블 정의 + 수동 마이그레이션 (앱과 스크립트가 공유)
