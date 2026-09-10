@@ -562,32 +562,147 @@ Part 5 는 같은 데이터를 **남이 쓸 수 있는 형태**로 여는 것을
 그래서 기존 `/api/posts`, `/api/todos` 는 **그대로 두고** `/api/v1` 아래에 따로 만들었다.
 버전을 경로에 박아 두면 나중에 응답 모양을 바꿔야 할 때 `/api/v2` 를 새로 열고 둘을 함께 운영할 수 있다.
 
-### 5-1. 빠른 시작
+### 5-1. 터미널로 따라 하기 (복사해서 붙여 넣기)
+
+`jq` 가 설치되어 있으면 응답을 보기 좋게 볼 수 있다 (`sudo apt install jq`). 없으면 각 명령 끝의 `| jq ...` 를 빼면 된다.
+먼저 개발 서버를 띄우고(`npm run dev`), 터미널에 찍힌 포트를 아래 변수에 넣는다. 이 변수는 이후 모든 단계에서 쓴다.
 
 ```bash
-# 0. 어떤 엔드포인트가 있는지 (인증 불필요)
-curl localhost:3000/api/v1
+B=http://localhost:3000   # npm run dev 가 3001 등 다른 포트에 떴으면 그 포트로
+```
 
-# 1. 토큰 발급 (시드 계정)
-TOKEN=$(curl -s -X POST localhost:3000/api/v1/auth/token \
+#### 1. 어떤 엔드포인트가 있는지 보기 (인증 불필요)
+
+```bash
+curl -s $B/api/v1 | jq
+```
+
+`endpoints` 에 auth, posts, comments, todos 가, `rateLimit` 에 분당 한도가 보인다.
+
+#### 2. 로그인해서 액세스 토큰 받기 (시드 계정, 1시간 유효)
+
+```bash
+TOKEN=$(curl -s -X POST $B/api/v1/auth/token \
   -H 'Content-Type: application/json' \
   -d '{"email":"demo@example.com","password":"password123"}' | jq -r .data.accessToken)
+echo $TOKEN
+```
 
-# 2. 내가 누구인지 확인 — 여기서 200 이 나오면 자격증명 전달은 성공이다
-curl localhost:3000/api/v1/auth/me -H "Authorization: Bearer $TOKEN"
+긴 JWT 문자열이 출력되면 성공. 비어 있으면 서버 주소나 시드(`npm run db:seed`)를 확인한다.
 
-# 3. 읽기는 토큰 없이도 된다
-curl 'localhost:3000/api/v1/posts?limit=2'
+#### 3. 토큰이 잘 전달되는지 확인
 
-# 4. 쓰기는 토큰이 필요하다
-curl -X POST localhost:3000/api/v1/posts \
+```bash
+curl -s $B/api/v1/auth/me -H "Authorization: Bearer $TOKEN" | jq
+```
+
+`data.user` 에 데모 계정이, `via` 에 `access_token` 이 나온다.
+
+#### 4. 글 목록 읽기 (읽기는 토큰 없이 된다)
+
+```bash
+curl -s "$B/api/v1/posts?limit=2" | jq
+curl -s "$B/api/v1/posts?q=스트리밍" | jq '.data[] | {id, title}'
+```
+
+`data` 배열과 `pagination`(total, limit, offset, hasMore) 이 함께 온다. `author` 는 `{ id, name }` 객체.
+
+#### 5. 글 작성 (토큰 필요)
+
+```bash
+NEW=$(curl -s -X POST $B/api/v1/posts \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"title":"API 로 쓴 글","content":"본문"}'
+  -d '{"title":"API 로 쓴 글","content":"터미널에서 작성"}')
+echo $NEW | jq
+ID=$(echo $NEW | jq -r .data.id)   # 이후 단계에서 쓴다
+```
 
-# 5. 오래 쓸 자격증명이 필요하면 API 키 (응답의 key 는 이때만 보인다)
-curl -X POST localhost:3000/api/v1/auth/keys \
+브라우저에서 `/posts` 를 새로고침하면 방금 쓴 글이 보인다 (`updateTag` 로 목록 캐시가 갱신됐기 때문).
+
+#### 6. 실패 응답 모양 보기
+
+```bash
+# 토큰 없이 → 401 unauthorized
+curl -s -X POST $B/api/v1/posts -H 'Content-Type: application/json' \
+  -d '{"title":"x","content":"y"}' | jq
+
+# 제목을 비우고 내용을 빼면 → 422 validation_failed, details 에 필드별 메시지
+curl -s -X POST $B/api/v1/posts -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"title":""}' | jq
+```
+
+#### 7. 글 수정 (PATCH, 바꿀 필드만 보낸다)
+
+```bash
+curl -s -X PATCH $B/api/v1/posts/$ID \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"name":"내 봇"}'
+  -d '{"title":"API 로 수정한 글"}' | jq
+```
+
+#### 8. 권한 검사 확인 (남의 글은 403)
+
+```bash
+GT=$(curl -s -X POST $B/api/v1/auth/token -H 'Content-Type: application/json' \
+  -d '{"email":"guest@example.com","password":"password123"}' | jq -r .data.accessToken)
+
+curl -s -X PATCH $B/api/v1/posts/$ID -H "Authorization: Bearer $GT" \
+  -H 'Content-Type: application/json' -d '{"title":"남의 글"}' | jq   # forbidden
+```
+
+#### 9. 댓글 달기와 읽기
+
+```bash
+# 게스트 토큰으로 댓글 (댓글은 로그인만 하면 누구나)
+curl -s -X POST $B/api/v1/posts/$ID/comments \
+  -H "Authorization: Bearer $GT" -H 'Content-Type: application/json' \
+  -d '{"content":"API 댓글"}' | jq
+
+# 답글은 parentId 를 추가한다
+CID=$(curl -s $B/api/v1/posts/$ID/comments | jq -r '.data[0].id')
+curl -s -X POST $B/api/v1/posts/$ID/comments \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d "{\"content\":\"API 답글\",\"parentId\":$CID}" | jq
+
+curl -s $B/api/v1/posts/$ID/comments | jq
+```
+
+#### 10. 오래 쓸 API 키 발급 (봇·서버 간 호출용, 만료 없음)
+
+```bash
+KEY=$(curl -s -X POST $B/api/v1/auth/keys \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"name":"내 봇"}' | tee /dev/stderr | jq -r .data.key)
+```
+
+`key` 값은 **이 응답에서만** 볼 수 있다. 서버에는 SHA-256 해시만 남는다. 키로도 토큰과 똑같이 호출된다.
+
+```bash
+curl -s $B/api/v1/auth/me -H "Authorization: Bearer $KEY" | jq      # via 가 api_key
+curl -s $B/api/v1/auth/keys -H "Authorization: Bearer $TOKEN" | jq  # 내 키 목록 (prefix 만 보인다)
+```
+
+#### 11. API 키 폐기 (즉시 401)
+
+```bash
+KID=$(curl -s $B/api/v1/auth/keys -H "Authorization: Bearer $TOKEN" | jq -r '.data[0].id')
+curl -s -o /dev/null -w "%{http_code}\n" -X DELETE $B/api/v1/auth/keys/$KID \
+  -H "Authorization: Bearer $TOKEN"                                  # 204
+curl -s $B/api/v1/auth/me -H "Authorization: Bearer $KEY" | jq      # unauthorized
+```
+
+#### 12. 글 삭제 (작성자만, 댓글도 CASCADE 로 함께 삭제)
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" -X DELETE $B/api/v1/posts/$ID \
+  -H "Authorization: Bearer $TOKEN"                                  # 204
+curl -s $B/api/v1/posts/$ID | jq                                    # not_found
+```
+
+#### 13. 레이트 리밋 헤더와 OpenAPI 명세
+
+```bash
+curl -s -D - -o /dev/null "$B/api/v1/posts?limit=1" | grep -i ratelimit   # 분당 60회, 남은 횟수
+curl -s $B/api/v1/openapi.json | jq '.info, (.paths | keys)'
 ```
 
 기계가 읽는 명세는 `GET /api/v1/openapi.json` (OpenAPI 3.1) 에 있다. 그대로 Swagger UI / Postman 에 넣으면 된다.
