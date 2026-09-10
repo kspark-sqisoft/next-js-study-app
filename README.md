@@ -210,6 +210,42 @@ const rows = db.prepare("SELECT * FROM todos").all();
 - `todos.ts`: SQL 은 이 파일에만 둔다. DB 행(snake_case, 0/1) 을 앱 타입(camelCase, boolean) 으로 변환하는 `toTodo` 패턴.
 - 환경 변수: DB 경로는 `.env` 의 `DATABASE_PATH`. Next.js 가 `.env` 를 자동 로드하고, `scripts/` 는 `node --env-file` 로 직접 읽는다.
 
+#### 최초 DB 연결은 어디서 일어나나
+
+명시적인 `connect()` 호출이 없다. `src/lib/db.ts` 파일 맨 아래의 한 줄이 **모듈이 처음 import 될 때** 실행되는 구조다.
+
+```
+1. 브라우저 → GET /todos
+2. Next.js 가 src/app/todos/page.tsx 를 로드
+3. page.tsx 가 import { getTodos } from "@/lib/todos"   → todos.ts 로드
+4. todos.ts 가 import { db } from "@/lib/db"             → db.ts 로드 (여기서 연결)
+5. db.ts 모듈 평가:
+     DB_PATH 계산 (.env 의 DATABASE_PATH)
+     globalThis.__db 가 있는지 확인
+     없으면 openDatabase() 호출                              ← 최초 연결
+6. openDatabase():
+     data/ 폴더 생성 (없으면)
+     new DatabaseSync(DB_PATH)      ← 파일 열기. 없으면 생성
+     PRAGMA journal_mode = WAL, foreign_keys = ON
+     ensureSchema(database)         → src/lib/schema.ts: 테이블 생성 + 빠진 컬럼 추가
+7. 반환된 연결이 export const db 에 담김. 이후 모든 import 는 이 값을 재사용
+8. 그제야 page.tsx 의 await getTodos() 가 실행되어 db.prepare(...).all()
+```
+
+핵심은 5번이다. `export const db = globalForDb.__db ?? openDatabase();` 는 함수 안이 아니라 **파일 최상위** 에 있어서 이 파일을 처음 import 하는 순간 한 번 실행된다. ES 모듈은 프로세스 안에서 한 번만 평가되므로 두 번째 import 부터는 이미 만들어진 `db` 를 그대로 받는다.
+
+| 상황 | 최초 연결 시점 |
+| --- | --- |
+| `npm run dev` | 서버가 뜰 때가 아니라 DB 를 쓰는 라우트에 **첫 요청** 이 왔을 때. 홈(`/`)만 열면 연결이 생기지 않는다 |
+| `npm run build` | 빌드 중 `generateStaticParams` 나 프리렌더가 `posts.ts` 를 로드할 때. 그래서 빌드 시점에 `data/app.db` 가 없으면 파일이 생성된다 |
+| `npm run start` | 빌드 결과에서 첫 요청 때 |
+| `npm run db:init`, `db:seed` | `db.ts` 를 쓰지 않는다. `scripts/*.mts` 가 직접 `new DatabaseSync` 를 열고 `ensureSchema` 만 공유한다 |
+| Vitest | `src/test/setup.ts` 가 `DATABASE_PATH` 를 임시 파일로 바꾼 뒤, 테스트 파일이 `db.ts` 를 import 하는 순간 |
+
+**개발 모드에서 두 번 열리지 않는 장치**: 파일을 저장할 때마다 HMR 이 모듈을 다시 평가하는데, 그때마다 `openDatabase()` 가 실행되면 연결이 계속 쌓인다. 그래서 만든 연결을 `globalThis.__db` 에 넣어 두고 다음 평가 때는 `??` 왼쪽에서 걸려 재사용한다. 프로덕션에는 HMR 이 없어 이 캐시를 쓰지 않는다.
+
+**직접 확인해 보기**: `openDatabase()` 첫 줄에 `console.log("DB 연결 열림")` 을 넣고 `npm run dev` 를 하면, `/` 를 열 때는 안 찍히고 `/todos` 를 처음 열 때 한 번만 찍힌다. 이후 새로고침해도 다시 찍히지 않는다.
+
 ### 1-3. 서버 컴포넌트에서 데이터 읽기
 
 `src/app/todos/page.tsx` 는 `async` 컴포넌트다. `"use client"` 가 없으므로 서버에서만 실행되고, `await getTodos()` 로 DB 를 직접 읽어 클라이언트 컴포넌트에 props 로 넘긴다. fetch 도, useEffect 도, API 도 필요 없다.
