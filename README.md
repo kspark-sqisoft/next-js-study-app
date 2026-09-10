@@ -202,6 +202,40 @@ const rows = db.prepare("SELECT * FROM todos").all();
 
 `src/app/todos/page.tsx` 는 `async` 컴포넌트다. `"use client"` 가 없으므로 서버에서만 실행되고, `await getTodos()` 로 DB 를 직접 읽어 클라이언트 컴포넌트에 props 로 넘긴다. fetch 도, useEffect 도, API 도 필요 없다.
 
+#### 왜 서버 컴포넌트에는 `async` 가 붙고 클라이언트 컴포넌트에는 안 붙나
+
+```ts
+export default async function TodosPage() { ... }     // 서버 컴포넌트 (page.tsx)
+export function TodoItem({ todo }: { todo: Todo }) { ... }   // 클라이언트 컴포넌트 (todo-item.tsx)
+```
+
+차이는 **"어디서, 몇 번 실행되는가"** 에서 온다.
+
+**서버 컴포넌트는 `async` 가 가능하다.** 서버에서 요청당 **한 번만** 실행되고, 결과(HTML 과 직렬화된 트리)를 브라우저로 보내면 끝이다. 다시 실행될 일이 없으니 함수 안에서 `await` 로 기다렸다가 완성된 결과를 돌려주는 것이 자연스럽다. "컴포넌트가 Promise 를 반환해도 된다" 는 것은 React 19 의 서버 컴포넌트에서만 허용되는 형태이며, 덕분에 데이터 가져오기를 `useEffect` 나 별도 API 없이 컴포넌트 본문에서 바로 할 수 있다.
+
+**클라이언트 컴포넌트는 `async` 가 안 된다.** 브라우저에서 **여러 번** 실행된다. state 가 바뀔 때마다, 부모가 다시 렌더링될 때마다 함수가 다시 호출되고 그 반환값으로 화면을 갱신한다. React 는 이 함수가 **동기적으로 즉시** JSX 를 돌려주기를 기대한다. `async` 로 만들면 JSX 대신 Promise 를 돌려주므로 그릴 수 없고, 렌더링마다 새 Promise 가 생겨 무한 루프나 훅 순서 깨짐이 생긴다. 그래서 React 가 막고, `"use client"` 파일의 컴포넌트에 `async` 를 붙이면 Next.js 가 에러를 낸다.
+
+클라이언트에서 비동기 작업이 필요하면 렌더 함수 **밖** 으로 뺀다. 이 프로젝트에 네 가지 방법이 모두 있다.
+
+| 방법 | 예 |
+| --- | --- |
+| 이벤트 핸들러 안에서 | `todo-item.tsx` 의 `startTransition(async () => { await toggleTodoAction(...) })`. 컴포넌트는 동기, 핸들러는 비동기 |
+| `useEffect` 안에서 | `client-fetch/post-count.tsx` 의 fetch |
+| 라이브러리로 | SWR, TanStack Query (`client-fetch/`, `feed/`) |
+| 서버가 만든 Promise 를 `use()` 로 읽기 | `releases/release-list.tsx`. 컴포넌트는 동기지만 `use()` 가 Promise 를 풀고, 준비 안 됐으면 Suspense 가 대신 기다린다 |
+
+| | 서버 컴포넌트 | 클라이언트 컴포넌트 |
+| --- | --- | --- |
+| 실행 위치 | 서버 | 브라우저 (SSR 시 서버에서도 한 번) |
+| 실행 횟수 | 요청당 한 번 | state 가 바뀔 때마다 반복 |
+| `async` | 가능. `await` 로 데이터를 바로 가져온다 | 불가. 동기적으로 JSX 를 돌려줘야 한다 |
+| 비동기 작업 | 본문에서 `await` | 이벤트 핸들러, `useEffect`, `use()`, 라이브러리 |
+| 훅 (`useState` 등) | 못 쓴다 (유지할 상태가 없다) | 쓴다 |
+
+`TodosPage`(서버, async) 가 데이터를 가져와 `TodoItem`(클라이언트, 동기) 에 props 로 넘기는 구조가 App Router 의 기본 분업이다. "데이터는 서버가 async 로 가져오고, 상호작용은 클라이언트가 동기 함수로 그린다." 두 파일의 함수 시그니처 차이가 그 분업을 그대로 보여 준다.
+
+참고로 서버 컴포넌트라고 반드시 `async` 일 필요는 없다. `src/app/page.tsx` 의 `Home` 은 기다릴 데이터가 없어서 `async` 가 아니다. `async` 는 "`await` 가 필요할 때" 붙이는 것이고, 붙일 수 있는 자격이 서버 컴포넌트에만 있을 뿐이다.
+
 ### 1-4. Server Action 으로 데이터 바꾸기
 
 `src/app/todos/actions.ts` 맨 위의 `"use server"` 가 이 파일의 모든 export 를 Server Action 으로 만든다.
