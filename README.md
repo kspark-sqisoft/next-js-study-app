@@ -1656,6 +1656,16 @@ tRPC 가 여전히 필요한 곳은 Server Action 이 못 하는 것들이다.
 
 각 브랜치의 README 에는 그 브랜치에서 달라진 점만 따로 정리한 절이 있다.
 
+```bash
+git switch feat/prisma   # 또는 feat/trpc
+npm install              # 브랜치마다 의존성이 다르다 (prisma, @trpc/* 등). 옮길 때마다 실행
+npm run db:seed          # feat/prisma 는 npm run db:migrate 를 먼저
+git switch main && npm install   # 돌아올 때도 마찬가지
+```
+
+세 브랜치는 같은 `data/app.db` 파일을 공유한다 (Prisma 브랜치는 기존 테이블 이름을 그대로 쓰도록 매핑했다).
+Prisma 브랜치가 남긴 `_prisma_migrations` 테이블은 main 에서 무시된다.
+
 ---
 
 ## 빌드 결과 읽는 법
