@@ -728,7 +728,7 @@ curl 로 보면 첫 바이트(TTFB) 는 수 ms, 전체 완료는 1.5초다. 서�
 | --- | --- | --- |
 | `post-count.tsx` | `useEffect` + `fetch` | 라이브러리 없음. 로딩/에러/취소(`AbortController`) 를 직접 처리해야 한다 |
 | `post-search.tsx` | SWR `useSWR(key, fetcher)` | 키(URL) 기반 캐시, 중복 요청 제거, 포커스 시 자동 갱신. 작고 단순 |
-| `post-search-query.tsx` | TanStack Query `useQuery({ queryKey, queryFn })` | 배열 쿼리 키, 풍부한 옵션, DevTools. `src/components/query-providers.tsx` 의 `QueryClientProvider` 가 필요 |
+| `post-search-query.tsx` | TanStack Query `useQuery({ queryKey, queryFn })` | 배열 쿼리 키, 풍부한 옵션, DevTools. `QueryClientProvider` 가 필요 (이 브랜치에서는 `src/trpc/client.tsx` 의 `TRPCReactProvider` 안에 있다) |
 
 SWR 과 TanStack Query 는 같은 문제를 푸는 경쟁 라이브러리다. Next.js 의 `"use cache"` 가 **서버 캐시** 라면 이들은 **브라우저 캐시** 로, 층위가 달라 대체 관계가 아니다.
 
@@ -1788,7 +1788,7 @@ npx shadcn@latest add <component>   # 예: npx shadcn@latest add table
 ```
 
 설치된 컴포넌트는 `src/components/ui/` 에 생성된다.
-현재 포함: button, card, input, label, badge, separator, dialog, dropdown-menu, sonner, checkbox, textarea, skeleton
+현재 포함: button, card, input, label, badge, separator, dialog, sonner, checkbox, textarea, skeleton
 
 ## 구조
 
