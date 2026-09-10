@@ -2035,7 +2035,7 @@ npx shadcn@latest add <component>   # 예: npx shadcn@latest add table
 ```
 
 설치된 컴포넌트는 `src/components/ui/` 에 생성된다.
-현재 포함: button, card, input, label, badge, separator, dialog, dropdown-menu, sonner, checkbox, textarea, skeleton
+현재 포함: button, card, input, label, badge, separator, dialog, sonner, checkbox, textarea, skeleton
 
 ## 구조
 
