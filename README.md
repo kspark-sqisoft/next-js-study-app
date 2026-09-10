@@ -193,6 +193,15 @@ const rows = db.prepare("SELECT * FROM todos").all();
 
 **Cache Components 에서의 추가 규칙**: `connection()` 아래 코드는 요청 시점에 실행되므로 정적 셸에 들어갈 수 없고 반드시 `<Suspense>` 안에 있어야 한다. `/todos` 에 `loading.tsx` 를 둔 이유가 그것이다(페이지 전체를 Suspense 로 감싼다). 그래서 빌드 표에 `○ Static` 이 아니라 `◐ Partial Prerender` 로 나온다. 셸(레이아웃, 스켈레톤)은 정적이고 목록 부분만 요청 시점에 채워진다는 뜻이다.
 
+**오해 주의: `/todos` 는 "캐시 컴포넌트" 가 아니다.** "Cache Components 모드 안에 있다" 와 "캐시된다" 는 다른 말이다. todos 페이지에는 `"use cache"` 가 어디에도 없으므로 캐시 엔트리도, `cacheLife` 도, 태그도 없다. 목록은 요청마다 DB 에서 새로 읽는다. `◐` 기호는 "일부가 캐시됨" 이 아니라 **"정적 셸 + 요청 시점에 채워지는 부분"** 이라는 뜻이고, todos 에서 정적 셸은 레이아웃과 `loading.tsx` 의 스켈레톤뿐이다. 캐시된 조각은 0개다. `/todos` 옆에 `Revalidate` 값이 안 붙는 것도 그래서다.
+"추가 규칙" 이 요구하는 것은 **캐시하라** 가 아니라 **요청 시점 코드의 경계를 Suspense 로 그으라** 는 것이다. 이전 모델에서는 이 경계 없이도 페이지가 통째로 동적이 되며 조용히 넘어갔지만, Cache Components 는 빌드 에러로 강제한다. 캐시를 만드는 것은 오직 `"use cache"` 뿐이며, `loading.tsx` 와 `<Suspense>` 는 캐시와 무관한 경계선이다.
+
+| 페이지 | `"use cache"` | 요청 시점 부분 | 빌드 표 |
+| --- | --- | --- | --- |
+| `/todos` | 없음 | 목록 전체 (`connection()`) | `◐` 셸만 정적, 내용은 매번 새로 |
+| `/posts` | `getPostsPage` 함수 | `searchParams` 읽기, 세션 확인 | `◐` 셸 정적, 목록은 캐시 함수 결과 |
+| `/posts/[id]` | `getPost` 함수 | 세션 확인, 댓글, "다른 글" | `◐` + `Revalidate 1h` (캐시 수명이 있어 표시됨) |
+
 **한 줄 요약**: DB 조회는 겉보기에 "그냥 계산" 이라 Next.js 가 빌드 때 실행해 굳혀 버린다. `await connection()` 은 "이 아래는 요청이 온 뒤에 실행하라" 는 표시라서, 이 한 줄이 페이지를 빌드 시점 렌더링(SSG)에서 요청 시점 렌더링(SSR)으로 바꾼다.
 
 ### 1-2. 데이터 접근 계층 (`src/lib/`)
