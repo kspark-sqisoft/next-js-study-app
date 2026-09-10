@@ -24,11 +24,11 @@ async function json<T = Record<string, never>>(res: Response): Promise<T> {
 let token: string;
 
 beforeAll(async () => {
-  token = await issueAccessToken(createUser("할일러", "todo-user@test.local", "hash").id);
+  token = await issueAccessToken((await createUser("할일러", "todo-user@test.local", "hash")).id);
 
-  createTodo("우유 사기");
-  const done = createTodo("설거지");
-  setTodoCompleted(done.id, true);
+  await createTodo("우유 사기");
+  const done = await createTodo("설거지");
+  await setTodoCompleted(done.id, true);
 });
 
 describe("GET /api/v1/todos", () => {

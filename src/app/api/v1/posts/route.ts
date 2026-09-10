@@ -17,7 +17,7 @@ import { postCreateSchema, postListQuerySchema } from "@/lib/schemas/api";
 
 export const GET = apiRoute(async ({ request }) => {
   const { q, limit, offset } = parseQuery(request.nextUrl, postListQuerySchema);
-  const { posts, total } = listPosts(q ?? "", limit, offset);
+  const { posts, total } = await listPosts(q ?? "", limit, offset);
 
   return okList(
     posts.map((post) => serializePost(post, request.nextUrl.origin)),
@@ -31,7 +31,7 @@ export const POST = apiRoute(async ({ request, auth }) => {
 
   // 이미지 첨부는 v1 에 없다. JSON 본문에 파일을 넣으려면 base64 로 부풀려야 하고,
   // 실무에서는 보통 "업로드용 URL 을 받아 브라우저가 직접 올리는" 별도 흐름으로 푼다.
-  const post = createPost(title, content, user.id, null);
+  const post = await createPost(title, content, user.id, null);
 
   // 화면 쪽 "use cache" 결과를 무효화한다.
   // Server Action 에서 쓰던 updateTag() 는 Route Handler 에서 호출할 수 없다(Next.js 16 제약).

@@ -11,11 +11,11 @@ export const DELETE = apiRoute<{ id: string }>(async ({ params, auth }) => {
   const { user } = requireAuth(auth);
   const id = parseIdParam(params.id);
 
-  const comment = findComment(id);
+  const comment = await findComment(id);
   if (!comment) throw notFound("존재하지 않는 댓글입니다.");
   if (comment.authorId !== user.id) throw forbidden("본인이 쓴 댓글만 삭제할 수 있습니다.");
 
-  deleteComment(id);
+  await deleteComment(id);
   revalidateTag(commentsTag(comment.postId), { expire: 0 });
 
   return noContent();

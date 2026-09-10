@@ -9,10 +9,10 @@ const { createUser } = await import("@/lib/users");
 const { createPost } = await import("@/lib/posts");
 const { GET } = await import("./route");
 
-beforeAll(() => {
-  const u = createUser("u", "u@test.local", "hash").id;
-  createPost("Next.js 캐싱", "내용", u);
-  createPost("SQLite 연결", "Next.js 에서 사용", u);
+beforeAll(async () => {
+  const u = (await createUser("u", "u@test.local", "hash")).id;
+  await createPost("Next.js 캐싱", "내용", u);
+  await createPost("SQLite 연결", "Next.js 에서 사용", u);
 });
 
 describe("GET /api/posts", () => {

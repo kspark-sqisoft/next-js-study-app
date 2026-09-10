@@ -7,7 +7,7 @@ import { PostForm } from "./post-form";
 import type { PostFormState } from "./actions";
 
 describe("<PostForm />", () => {
-  it("initial 값을 입력창에 채운다", () => {
+  it("initial 값을 입력창에 채운다", async () => {
     render(<PostForm action={async () => null} initial={{ title: "제목", content: "내용" }} submitLabel="저장" />);
     expect(screen.getByLabelText("제목")).toHaveValue("제목");
     expect(screen.getByLabelText("내용")).toHaveValue("내용");

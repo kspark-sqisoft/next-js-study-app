@@ -16,7 +16,7 @@ import { findUserById, type User } from "@/lib/users";
 export const getCurrentUser = cache(async (): Promise<User | null> => {
   const userId = await getSessionUserId();
   if (!userId) return null;
-  return findUserById(userId); // 탈퇴 등으로 사용자가 없어졌으면 null
+  return await findUserById(userId); // 탈퇴 등으로 사용자가 없어졌으면 null
 });
 
 /** 로그인이 꼭 필요한 곳에서 사용. 없으면 로그인 페이지로 보낸다. */

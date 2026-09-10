@@ -30,13 +30,13 @@ let ownerId: number;
 let seededPostId: number;
 
 beforeAll(async () => {
-  ownerId = createUser("작성자", "post-owner@test.local", "hash").id;
-  const strangerId = createUser("남", "post-stranger@test.local", "hash").id;
+  ownerId = (await createUser("작성자", "post-owner@test.local", "hash")).id;
+  const strangerId = (await createUser("남", "post-stranger@test.local", "hash")).id;
   ownerToken = await issueAccessToken(ownerId);
   strangerToken = await issueAccessToken(strangerId);
 
-  createPost("Next.js 캐싱", "Cache Components 이야기", ownerId);
-  seededPostId = createPost("SQLite 연결", "node:sqlite 드라이버", ownerId).id;
+  await createPost("Next.js 캐싱", "Cache Components 이야기", ownerId);
+  seededPostId = (await createPost("SQLite 연결", "node:sqlite 드라이버", ownerId)).id;
 });
 
 describe("GET /api/v1/posts", () => {

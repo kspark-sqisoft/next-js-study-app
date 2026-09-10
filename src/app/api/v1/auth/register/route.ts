@@ -17,9 +17,9 @@ export const POST = apiRoute(async ({ request }) => {
   // 409 Conflict: 요청 자체는 올바른데 현재 상태와 충돌한다는 뜻.
   // (가입 화면과 달리 여기서는 이메일 존재 여부를 숨기지 않는다. 가입 API 는 어차피
   //  "이 이메일로 가입되나?" 를 시도해 보면 알 수 있어서 감추는 의미가 없다)
-  if (findUserWithHashByEmail(email)) throw conflict("이미 가입된 이메일입니다.");
+  if (await findUserWithHashByEmail(email)) throw conflict("이미 가입된 이메일입니다.");
 
-  const user = createUser(name, email, await hashPassword(password));
+  const user = await createUser(name, email, await hashPassword(password));
 
   return ok(
     {

@@ -12,7 +12,7 @@ import { apiKeyCreateSchema } from "@/lib/schemas/api";
 
 export const GET = apiRoute(async ({ auth }) => {
   const { user } = requireAccessToken(auth);
-  const keys = listApiKeys(user.id).map(serializeApiKey);
+  const keys = (await listApiKeys(user.id)).map(serializeApiKey);
   // 키는 보통 몇 개뿐이라 페이지네이션 없이 전부 준다.
   // 그래도 응답 모양은 다른 목록 API 와 같게 맞춘다 (클라이언트가 분기하지 않도록).
   return okList(keys, paginationOf(keys.length, keys.length, 0, keys.length));
@@ -22,7 +22,7 @@ export const POST = apiRoute(async ({ request, auth }) => {
   const { user } = requireAccessToken(auth);
   const { name } = await parseJsonBody(request, apiKeyCreateSchema);
 
-  const { apiKey, key } = createApiKey(user.id, name);
+  const { apiKey, key } = await createApiKey(user.id, name);
 
   return ok(
     {

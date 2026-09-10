@@ -7,7 +7,7 @@ describe("useDebouncedCallback", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
-  it("연속 호출하면 마지막 호출만 delay 뒤에 한 번 실행된다", () => {
+  it("연속 호출하면 마지막 호출만 delay 뒤에 한 번 실행된다", async () => {
     const fn = vi.fn();
     const { result } = renderHook(() => useDebouncedCallback(fn, 400));
 
@@ -26,7 +26,7 @@ describe("useDebouncedCallback", () => {
     expect(fn).toHaveBeenCalledWith("스트리밍");
   });
 
-  it("cancel 하면 실행되지 않는다", () => {
+  it("cancel 하면 실행되지 않는다", async () => {
     const fn = vi.fn();
     const { result } = renderHook(() => useDebouncedCallback(fn, 400));
     act(() => {
@@ -37,7 +37,7 @@ describe("useDebouncedCallback", () => {
     expect(fn).not.toHaveBeenCalled();
   });
 
-  it("언마운트되면 대기 중인 실행이 취소된다", () => {
+  it("언마운트되면 대기 중인 실행이 취소된다", async () => {
     const fn = vi.fn();
     const { result, unmount } = renderHook(() => useDebouncedCallback(fn, 400));
     act(() => result.current.debounced("x"));
@@ -46,7 +46,7 @@ describe("useDebouncedCallback", () => {
     expect(fn).not.toHaveBeenCalled();
   });
 
-  it("렌더링마다 새 callback 을 넘겨도 최신 것이 실행된다", () => {
+  it("렌더링마다 새 callback 을 넘겨도 최신 것이 실행된다", async () => {
     const first = vi.fn();
     const second = vi.fn();
     const { result, rerender } = renderHook(({ cb }) => useDebouncedCallback(cb, 400), { initialProps: { cb: first } });

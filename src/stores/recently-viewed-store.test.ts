@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { pushRecent, RECENT_MAX, useRecentlyViewed } from "./recently-viewed-store";
 
 describe("pushRecent (순수 함수)", () => {
-  it("맨 앞에 넣고 같은 id 는 제거하며 최대 개수를 지킨다", () => {
+  it("맨 앞에 넣고 같은 id 는 제거하며 최대 개수를 지킨다", async () => {
     const list = [{ id: 1, title: "a" }, { id: 2, title: "b" }];
     expect(pushRecent(list, { id: 2, title: "b2" })).toEqual([{ id: 2, title: "b2" }, { id: 1, title: "a" }]);
     const many = Array.from({ length: RECENT_MAX }, (_, i) => ({ id: i + 10, title: "x" }));
@@ -13,12 +13,12 @@ describe("pushRecent (순수 함수)", () => {
 });
 
 describe("recently-viewed-store (persist)", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     localStorage.clear();
     useRecentlyViewed.setState({ entries: [], hydrated: false });
   });
 
-  it("record 하면 localStorage 에 entries 만 저장된다 (partialize)", () => {
+  it("record 하면 localStorage 에 entries 만 저장된다 (partialize)", async () => {
     useRecentlyViewed.getState().record({ id: 1, title: "첫 글" });
     const raw = JSON.parse(localStorage.getItem("recently-viewed-posts")!);
     expect(raw.state).toEqual({ entries: [{ id: 1, title: "첫 글" }] }); // hydrated, 함수는 저장 안 됨

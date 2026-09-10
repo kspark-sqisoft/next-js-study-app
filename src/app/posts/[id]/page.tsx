@@ -22,7 +22,7 @@ import { RecentlyViewedLoader } from "./recently-viewed-loader";
 // 빌드 시 미리 렌더링할 id. Cache Components 에서는 최소 1개를 돌려줘야 한다.
 // DB 가 비어 있으면(첫 clone 등) 자리표시자를 주고, 페이지에서 notFound() 로 처리한다.
 export async function generateStaticParams() {
-  const ids = getPostIds().slice(0, 2); // 최신 2개만 빌드 시 생성, 나머지는 첫 요청 때
+  const ids = (await getPostIds()).slice(0, 2); // 최신 2개만 빌드 시 생성, 나머지는 첫 요청 때
   return ids.length > 0 ? ids.map((id) => ({ id: String(id) })) : [{ id: "0" }];
 }
 

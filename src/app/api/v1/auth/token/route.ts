@@ -13,7 +13,7 @@ import { findUserWithHashByEmail } from "@/lib/users";
 export const POST = apiRoute(async ({ request }) => {
   const { email, password } = await parseJsonBody(request, tokenSchema);
 
-  const found = findUserWithHashByEmail(email);
+  const found = await findUserWithHashByEmail(email);
   const passwordMatches = found ? await verifyPassword(password, found.password_hash) : false;
 
   // 이메일이 없을 때와 비밀번호가 틀렸을 때 같은 메시지를 준다.

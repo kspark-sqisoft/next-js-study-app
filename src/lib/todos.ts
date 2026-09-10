@@ -1,9 +1,11 @@
-// 서버 전용. todos 테이블에 대한 데이터 접근 함수 모음 (SQL 은 여기에만 둔다).
+// todos 테이블 접근 함수 (Prisma 버전). main 브랜치의 SQL 문자열 버전과 비교해 보자.
+// - TodoRow 타입과 toTodo 변환이 거의 사라졌다. Prisma 가 컬럼 타입을 알고 있어서 반환값에 타입이 자동으로 붙는다.
+//   (completed 만 0/1 → boolean 변환이 남는다. SQLite 에 boolean 이 없기 때문)
+// - `IN (?, ?, ?)` 자리표시자 조립이 `{ id: { in: ids } }` 로 바뀌었다.
 import "server-only";
 import { connection } from "next/server";
-import { db } from "@/lib/db";
+import { prisma } from "@/lib/prisma";
 
-// 앱에서 사용하는 Todo 타입 (camelCase, boolean)
 export type Todo = {
   id: number;
   title: string;
@@ -11,132 +13,72 @@ export type Todo = {
   createdAt: string;
 };
 
-// DB 에서 그대로 읽힌 행의 타입 (snake_case, 0/1)
-type TodoRow = {
-  id: number;
-  title: string;
-  completed: number;
-  created_at: string;
-};
+type TodoRecord = { id: number; title: string; completed: number; createdAt: string };
 
-// DB 행 → 앱 타입 변환
-function toTodo(row: TodoRow): Todo {
-  return {
-    id: row.id,
-    title: row.title,
-    completed: row.completed === 1,
-    createdAt: row.created_at,
-  };
+function toTodo(t: TodoRecord): Todo {
+  return { id: t.id, title: t.title, completed: t.completed === 1, createdAt: t.createdAt };
 }
 
 /**
- * 전체 목록 조회. 이 함수의 핵심은 첫 줄의 `await connection()` 이다.
- *
- * [왜 필요한가]
- * Next.js 는 `npm run build` 때 모든 페이지를 한 번 실행해 보고, 미리 만들 수 있으면 HTML 로 굳혀 둔다(SSG).
- * "요청마다 새로 만들어야 하는 페이지" 는 cookies()/headers()/searchParams 처럼 요청이 있어야 값이 생기는
- * API 를 쓰는지로 판단한다. 그런데 아래의 db.prepare().all() 은 쿠키도 헤더도 안 쓰는 동기 함수 호출이라,
- * Next.js 눈에는 JSON.parse 나 fs.readFileSync 같은 "언제 실행해도 같은 계산" 으로 보인다.
- * 그래서 connection() 이 없으면 빌드 시점에 한 번 실행되고, 그때의 todo 목록이 HTML 에 박힌 채
- * 이후 요청에도 그대로 나간다. (revalidatePath 로 다시 만들기 전까지는 DB 가 바뀌어도 화면이 안 바뀐다)
- *
- * [connection() 이 하는 일]
- * "이 줄 아래는 실제 사용자 요청(connection)이 들어온 다음에 실행하라" 는 신호다.
- * 빌드 시점의 프리렌더에서는 여기서 멈추고(suspend) 아래를 실행하지 않는다. 요청이 오면 즉시 통과한다.
- * 요청 데이터를 읽을 필요는 없지만 요청 시점에 실행되어야 하는 코드(Math.random, new Date, 동기 DB 드라이버)를
- * 위한 함수이며, 결과적으로 이 페이지를 빌드 시점 렌더링(SSG)에서 요청 시점 렌더링(SSR)으로 바꾼다.
- *
- * [Cache Components 와의 관계]
- * connection() 아래 코드는 정적 셸에 들어갈 수 없으므로 반드시 <Suspense> 안에서 호출되어야 한다.
- * /todos 는 loading.tsx 가 페이지 전체를 Suspense 로 감싸 주기 때문에 빌드 표에 "◐ Partial Prerender" 로 나온다
- * (셸은 정적, 목록만 요청 시점에 스트리밍).
- *
- * [실험] 이 줄을 지우고 npm run build → /todos 가 "○ Static" 이 되고, DB 를 바꿔도 화면이 안 변한다.
+ * 전체 목록 조회. `await connection()` 의 역할은 main 브랜치 README 1-1 과 같다:
+ * 요청이 온 다음에 실행되게 해서 빌드 시점에 결과가 굳지 않도록 한다.
+ * (Prisma 쿼리는 비동기지만, 비동기라고 해서 자동으로 "요청 시점" 이 되는 것은 아니다. 캐시되지 않은
+ *  비동기 작업도 프리렌더 중에 실행될 수 있으므로 여전히 connection() 이 필요하다.)
  */
 export async function getTodos(): Promise<Todo[]> {
-  await connection(); // 프리렌더에서는 여기서 멈춤. 요청 시점에만 아래가 실행된다
-  const rows = db
-    .prepare("SELECT * FROM todos ORDER BY completed ASC, id DESC") // 미완료 먼저, 최신순
-    .all() as TodoRow[];
+  await connection();
+  const rows = await prisma.todo.findMany({ orderBy: [{ completed: "asc" }, { id: "desc" }] });
   return rows.map(toTodo);
 }
 
-/**
- * 공개 API(/api/v1/todos) 용 목록. completed 로 거를 수 있고 전체 개수를 함께 돌려준다.
- * getTodos() 와 달리 connection() 이 없다 — Route Handler 는 Authorization 헤더를 읽는 순간
- * 이미 "요청마다 실행" 으로 확정되므로 따로 알려 줄 필요가 없다.
- */
-export function listTodos(
+export async function listTodos(
   completed: boolean | null,
   limit: number,
   offset: number,
-): { todos: Todo[]; total: number } {
-  const where = completed === null ? "" : "WHERE completed = ?";
-  const params = completed === null ? [] : [completed ? 1 : 0];
-
-  const { total } = db
-    .prepare(`SELECT COUNT(*) AS total FROM todos ${where}`)
-    .get(...params) as { total: number };
-
-  const rows = db
-    .prepare(`SELECT * FROM todos ${where} ORDER BY id DESC LIMIT ? OFFSET ?`)
-    .all(...params, limit, offset) as TodoRow[];
-
+): Promise<{ todos: Todo[]; total: number }> {
+  const where = completed === null ? {} : { completed: completed ? 1 : 0 };
+  const [total, rows] = await Promise.all([
+    prisma.todo.count({ where }),
+    prisma.todo.findMany({ where, orderBy: { id: "desc" }, take: limit, skip: offset }),
+  ]);
   return { todos: rows.map(toTodo), total };
 }
 
-/** 단건 조회. 없으면 null (API 에서 404 로 바꾼다). */
-export function findTodo(id: number): Todo | null {
-  const row = db.prepare("SELECT * FROM todos WHERE id = ?").get(id) as TodoRow | undefined;
-  return row ? toTodo(row) : null;
+export async function findTodo(id: number): Promise<Todo | null> {
+  if (!Number.isInteger(id)) return null;
+  const t = await prisma.todo.findUnique({ where: { id } });
+  return t ? toTodo(t) : null;
 }
 
-// 새 할 일 추가. RETURNING * 로 방금 넣은 행을 바로 받는다.
-export function createTodo(title: string): Todo {
-  const row = db
-    .prepare("INSERT INTO todos (title) VALUES (?) RETURNING *")
-    .get(title) as TodoRow;
-  return toTodo(row);
+export async function createTodo(title: string): Promise<Todo> {
+  return toTodo(await prisma.todo.create({ data: { title } }));
 }
 
-// 완료 여부 변경
-export function setTodoCompleted(id: number, completed: boolean): void {
-  db.prepare("UPDATE todos SET completed = ? WHERE id = ?").run(
-    completed ? 1 : 0,
-    id,
-  );
+export async function setTodoCompleted(id: number, completed: boolean): Promise<void> {
+  await prisma.todo.update({ where: { id }, data: { completed: completed ? 1 : 0 } });
 }
 
-// 제목 변경
-export function updateTodoTitle(id: number, title: string): void {
-  db.prepare("UPDATE todos SET title = ? WHERE id = ?").run(title, id);
+export async function updateTodoTitle(id: number, title: string): Promise<void> {
+  await prisma.todo.update({ where: { id }, data: { title } });
 }
 
-// 단건 삭제
-export function deleteTodo(id: number): void {
-  db.prepare("DELETE FROM todos WHERE id = ?").run(id);
+export async function deleteTodo(id: number): Promise<void> {
+  await prisma.todo.deleteMany({ where: { id } }); // delete() 는 없으면 예외를 던지므로 deleteMany
 }
 
-// 여러 건의 완료 여부 일괄 변경. SQL 의 IN (?, ?, ...) 자리표시자를 id 개수만큼 만든다.
-export function setTodosCompleted(ids: number[], completed: boolean): number {
+export async function setTodosCompleted(ids: number[], completed: boolean): Promise<number> {
   if (ids.length === 0) return 0;
-  const placeholders = ids.map(() => "?").join(", ");
-  const result = db
-    .prepare(`UPDATE todos SET completed = ? WHERE id IN (${placeholders})`)
-    .run(completed ? 1 : 0, ...ids);
-  return Number(result.changes);
+  const r = await prisma.todo.updateMany({ where: { id: { in: ids } }, data: { completed: completed ? 1 : 0 } });
+  return r.count;
 }
 
-// 여러 건 일괄 삭제
-export function deleteTodos(ids: number[]): number {
+export async function deleteTodos(ids: number[]): Promise<number> {
   if (ids.length === 0) return 0;
-  const placeholders = ids.map(() => "?").join(", ");
-  const result = db.prepare(`DELETE FROM todos WHERE id IN (${placeholders})`).run(...ids);
-  return Number(result.changes);
+  const r = await prisma.todo.deleteMany({ where: { id: { in: ids } } });
+  return r.count;
 }
 
-// 완료된 항목 일괄 삭제. 삭제된 행 수를 반환한다.
-export function deleteCompletedTodos(): number {
-  const result = db.prepare("DELETE FROM todos WHERE completed = 1").run();
-  return Number(result.changes);
+export async function deleteCompletedTodos(): Promise<number> {
+  const r = await prisma.todo.deleteMany({ where: { completed: 1 } });
+  return r.count;
 }

@@ -8,7 +8,8 @@
 //                          (scrypt 는 salt 가 행마다 달라서 전체 행을 훑지 않으면 조회할 수 없다)
 import "server-only";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { db } from "@/lib/db";
+import { prisma } from "@/lib/prisma";
+import { sqlNow } from "@/lib/sql-now";
 
 /** 키 앞에 붙는 고정 접두사. 토큰 문자열만 보고 "이건 API 키" 라고 구분할 수 있게 한다. */
 export const API_KEY_PREFIX = "sk_";
@@ -23,26 +24,17 @@ export type ApiKey = {
   createdAt: string;
 };
 
-type ApiKeyRow = {
+type ApiKeyRecord = {
   id: number;
-  user_id: number;
   name: string;
-  key_hash: string;
   prefix: string;
-  last_used_at: string | null;
-  revoked_at: string | null;
-  created_at: string;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+  createdAt: string;
 };
 
-function toApiKey(row: ApiKeyRow): ApiKey {
-  return {
-    id: row.id,
-    name: row.name,
-    prefix: row.prefix,
-    lastUsedAt: row.last_used_at,
-    revokedAt: row.revoked_at,
-    createdAt: row.created_at,
-  };
+function toApiKey(k: ApiKeyRecord): ApiKey {
+  return { id: k.id, name: k.name, prefix: k.prefix, lastUsedAt: k.lastUsedAt, revokedAt: k.revokedAt, createdAt: k.createdAt };
 }
 
 /** 키 원문 → 조회에 쓰는 해시. 같은 입력이면 항상 같은 결과라서 WHERE key_hash = ? 로 찾을 수 있다. */
@@ -54,23 +46,17 @@ export function hashApiKey(key: string): string {
  * 새 키 발급. 돌려주는 `key` 가 사용자에게 딱 한 번 보여줄 원문이다.
  * DB 에는 해시만 들어가므로 이 값을 잃어버리면 다시 볼 방법이 없다 (GitHub, Stripe 등과 같은 방식).
  */
-export function createApiKey(userId: number, name: string): { apiKey: ApiKey; key: string } {
-  // 32바이트(256비트) 난수. 추측할 수 없다.
+export async function createApiKey(userId: number, name: string): Promise<{ apiKey: ApiKey; key: string }> {
   const key = API_KEY_PREFIX + randomBytes(32).toString("hex");
   const prefix = key.slice(0, API_KEY_PREFIX.length + 8); // sk_ + 8자
 
-  const row = db
-    .prepare("INSERT INTO api_keys (user_id, name, key_hash, prefix) VALUES (?, ?, ?, ?) RETURNING *")
-    .get(userId, name, hashApiKey(key), prefix) as ApiKeyRow;
-
+  const row = await prisma.apiKey.create({ data: { userId, name, keyHash: hashApiKey(key), prefix } });
   return { apiKey: toApiKey(row), key };
 }
 
 /** 사용자의 키 목록. 폐기된 것도 이력으로 함께 보여준다. */
-export function listApiKeys(userId: number): ApiKey[] {
-  const rows = db
-    .prepare("SELECT * FROM api_keys WHERE user_id = ? ORDER BY id DESC")
-    .all(userId) as ApiKeyRow[];
+export async function listApiKeys(userId: number): Promise<ApiKey[]> {
+  const rows = await prisma.apiKey.findMany({ where: { userId }, orderBy: { id: "desc" } });
   return rows.map(toApiKey);
 }
 
@@ -80,23 +66,21 @@ export function listApiKeys(userId: number): ApiKey[] {
  * 해시로 한 행을 찾은 뒤 timingSafeEqual 로 한 번 더 비교한다.
  * SQL 비교만으로도 충분하지만, 비교 시간이 값에 따라 달라지지 않게 하는 습관을 그대로 지킨다.
  */
-export function findUserIdByApiKey(key: string): number | null {
+export async function findUserIdByApiKey(key: string): Promise<number | null> {
   const hash = hashApiKey(key);
-  const row = db
-    .prepare("SELECT * FROM api_keys WHERE key_hash = ?")
-    .get(hash) as ApiKeyRow | undefined;
-  if (!row || row.revoked_at !== null) return null;
+  const row = await prisma.apiKey.findUnique({ where: { keyHash: hash } });
+  if (!row || row.revokedAt !== null) return null;
 
   const a = Buffer.from(hash, "hex");
-  const b = Buffer.from(row.key_hash, "hex");
+  const b = Buffer.from(row.keyHash, "hex");
   if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
 
-  return row.user_id;
+  return row.userId;
 }
 
 /** 마지막 사용 시각 기록. 인증에 성공할 때마다 호출한다 (실패해도 요청은 계속 처리되어야 하므로 반환값 없음). */
-export function touchApiKey(key: string): void {
-  db.prepare("UPDATE api_keys SET last_used_at = datetime('now') WHERE key_hash = ?").run(hashApiKey(key));
+export async function touchApiKey(key: string): Promise<void> {
+  await prisma.apiKey.updateMany({ where: { keyHash: hashApiKey(key) }, data: { lastUsedAt: sqlNow() } });
 }
 
 /**
@@ -104,9 +88,7 @@ export function touchApiKey(key: string): void {
  * "언제 어떤 키가 쓰였는지" 이력이 남아야 사고 조사가 가능하기 때문이다.
  * 본인 키만 폐기할 수 있도록 user_id 조건을 SQL 에 함께 넣는다.
  */
-export function revokeApiKey(userId: number, id: number): boolean {
-  const result = db
-    .prepare("UPDATE api_keys SET revoked_at = datetime('now') WHERE id = ? AND user_id = ? AND revoked_at IS NULL")
-    .run(id, userId);
-  return Number(result.changes) > 0;
+export async function revokeApiKey(userId: number, id: number): Promise<boolean> {
+  const r = await prisma.apiKey.updateMany({ where: { id, userId, revokedAt: null }, data: { revokedAt: sqlNow() } });
+  return r.count > 0;
 }

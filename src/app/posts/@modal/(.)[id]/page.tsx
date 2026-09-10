@@ -13,7 +13,7 @@ import { imageUrl } from "@/lib/uploads";
 
 // 동적 세그먼트이므로 Cache Components 규칙대로 최소 1개를 돌려준다
 export async function generateStaticParams() {
-  const ids = getPostIds().slice(0, 2);
+  const ids = (await getPostIds()).slice(0, 2);
   return ids.length > 0 ? ids.map((id) => ({ id: String(id) })) : [{ id: "0" }];
 }
 

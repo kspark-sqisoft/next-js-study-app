@@ -35,14 +35,14 @@ export async function addTodoAction(
   if (!title) {
     return { error: `할 일은 1~${MAX_TITLE}자로 입력하세요.` };
   }
-  createTodo(title);
+  await createTodo(title);
   revalidatePath("/todos"); // /todos 페이지를 서버에서 다시 렌더링해 최신 목록을 내려보낸다
   return null;
 }
 
 // 완료 여부 토글
 export async function toggleTodoAction(id: number, completed: boolean) {
-  setTodoCompleted(id, completed);
+  await setTodoCompleted(id, completed);
   revalidatePath("/todos");
 }
 
@@ -50,20 +50,20 @@ export async function toggleTodoAction(id: number, completed: boolean) {
 export async function renameTodoAction(id: number, title: string) {
   const parsed = parseTitle(title);
   if (!parsed) return { error: `할 일은 1~${MAX_TITLE}자로 입력하세요.` };
-  updateTodoTitle(id, parsed);
+  await updateTodoTitle(id, parsed);
   revalidatePath("/todos");
   return null;
 }
 
 // 단건 삭제
 export async function deleteTodoAction(id: number) {
-  deleteTodo(id);
+  await deleteTodo(id);
   revalidatePath("/todos");
 }
 
 // 완료 항목 일괄 삭제. 삭제 개수를 반환해 토스트 메시지에 사용한다.
 export async function clearCompletedAction() {
-  const count = deleteCompletedTodos();
+  const count = await deleteCompletedTodos();
   revalidatePath("/todos");
   return count;
 }
@@ -84,7 +84,7 @@ function parseIds(ids: unknown): number[] | null {
 export async function bulkSetCompletedAction(ids: number[], completed: boolean) {
   const valid = parseIds(ids);
   if (!valid) return { error: "선택한 항목이 올바르지 않습니다." };
-  const changed = setTodosCompleted(valid, completed);
+  const changed = await setTodosCompleted(valid, completed);
   revalidatePath("/todos");
   return { changed };
 }
@@ -92,7 +92,7 @@ export async function bulkSetCompletedAction(ids: number[], completed: boolean) 
 export async function bulkDeleteAction(ids: number[]) {
   const valid = parseIds(ids);
   if (!valid) return { error: "선택한 항목이 올바르지 않습니다." };
-  const deleted = deleteTodos(valid);
+  const deleted = await deleteTodos(valid);
   revalidatePath("/todos");
   return { deleted };
 }

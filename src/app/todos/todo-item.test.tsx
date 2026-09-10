@@ -16,7 +16,7 @@ const { TodoItem } = await import("./todo-item");
 const todo = { id: 1, title: "공부하기", completed: false, createdAt: "2026-01-01" };
 
 describe("<TodoItem />", () => {
-  it("제목을 보여 주고, 완료면 취소선 스타일을 붙인다", () => {
+  it("제목을 보여 주고, 완료면 취소선 스타일을 붙인다", async () => {
     const { rerender } = render(<TodoItem todo={todo} />);
     expect(screen.getByText("공부하기")).not.toHaveClass("line-through");
     rerender(<TodoItem todo={{ ...todo, completed: true }} />);

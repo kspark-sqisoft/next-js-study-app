@@ -6,7 +6,7 @@ import { useTodoSelection } from "./todo-selection-store";
 describe("todo-selection-store", () => {
   beforeEach(() => useTodoSelection.getState().clear()); // 모듈 싱글턴이라 테스트 사이에 초기화
 
-  it("toggle 은 없으면 추가, 있으면 제거", () => {
+  it("toggle 은 없으면 추가, 있으면 제거", async () => {
     const s = useTodoSelection.getState();
     s.toggle(1);
     s.toggle(2);
@@ -15,14 +15,14 @@ describe("todo-selection-store", () => {
     expect(useTodoSelection.getState().selectedIds).toEqual([2]);
   });
 
-  it("selectAll 은 주어진 목록으로 교체, clear 는 비운다", () => {
+  it("selectAll 은 주어진 목록으로 교체, clear 는 비운다", async () => {
     useTodoSelection.getState().selectAll([3, 4, 5]);
     expect(useTodoSelection.getState().selectedIds).toEqual([3, 4, 5]);
     useTodoSelection.getState().clear();
     expect(useTodoSelection.getState().selectedIds).toEqual([]);
   });
 
-  it("구독자는 상태가 바뀔 때 호출된다", () => {
+  it("구독자는 상태가 바뀔 때 호출된다", async () => {
     const seen: number[][] = [];
     const unsubscribe = useTodoSelection.subscribe((s) => seen.push(s.selectedIds));
     useTodoSelection.getState().toggle(9);

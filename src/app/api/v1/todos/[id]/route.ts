@@ -9,34 +9,34 @@ import { serializeTodo } from "@/lib/api/serialize";
 import { todoUpdateSchema } from "@/lib/schemas/api";
 import { deleteTodo, findTodo, setTodoCompleted, updateTodoTitle } from "@/lib/todos";
 
-function loadTodo(rawId: string) {
-  const todo = findTodo(parseIdParam(rawId));
+async function loadTodo(rawId: string) {
+  const todo = await findTodo(parseIdParam(rawId));
   if (!todo) throw notFound("존재하지 않는 할 일입니다.");
   return todo;
 }
 
 export const GET = apiRoute<{ id: string }>(async ({ params }) => {
-  return ok(serializeTodo(loadTodo(params.id)));
+  return ok(serializeTodo(await loadTodo(params.id)));
 });
 
 export const PATCH = apiRoute<{ id: string }>(async ({ request, params, auth }) => {
   requireAuth(auth);
-  const todo = loadTodo(params.id);
+  const todo = await loadTodo(params.id);
   const body = await parseJsonBody(request, todoUpdateSchema);
 
   // 온 필드만 반영한다. 두 컬럼을 따로 갱신하는 함수를 그대로 재사용했다.
-  if (body.title !== undefined) updateTodoTitle(todo.id, body.title);
-  if (body.completed !== undefined) setTodoCompleted(todo.id, body.completed);
+  if (body.title !== undefined) await updateTodoTitle(todo.id, body.title);
+  if (body.completed !== undefined) await setTodoCompleted(todo.id, body.completed);
 
   revalidatePath("/todos");
-  return ok(serializeTodo(findTodo(todo.id)!));
+  return ok(serializeTodo((await findTodo(todo.id))!));
 });
 
 export const DELETE = apiRoute<{ id: string }>(async ({ params, auth }) => {
   requireAuth(auth);
-  const todo = loadTodo(params.id);
+  const todo = await loadTodo(params.id);
 
-  deleteTodo(todo.id);
+  await deleteTodo(todo.id);
   revalidatePath("/todos");
 
   return noContent();

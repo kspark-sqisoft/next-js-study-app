@@ -13,7 +13,7 @@ export const DELETE = apiRoute<{ id: string }>(async ({ params, auth }) => {
 
   // revokeApiKey 의 SQL 에 user_id 조건이 들어 있다. 남의 키 id 를 넣어도 0건이 바뀌므로
   // "없음" 과 "남의 것" 이 같은 404 가 된다 — 남의 키 존재 여부를 알려 주지 않는다.
-  if (!revokeApiKey(user.id, id)) throw notFound("존재하지 않거나 이미 폐기된 키입니다.");
+  if (!await revokeApiKey(user.id, id)) throw notFound("존재하지 않거나 이미 폐기된 키입니다.");
 
   return noContent(); // 204: 성공했고 돌려줄 본문이 없다
 });

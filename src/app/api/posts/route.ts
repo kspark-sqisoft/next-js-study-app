@@ -10,36 +10,32 @@ function toItem({ id, title, authorName, imagePath, createdAt }: Post) {
   return { id, title, authorName, imagePath, createdAt }; // 필요한 필드만 (본문 전체는 내려보내지 않는다)
 }
 
-export function GET(request: NextRequest) {
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+export async function GET(request: NextRequest) {
   const sp = request.nextUrl.searchParams;
   const q = sp.get("q")?.trim() ?? "";
   const limitParam = sp.get("limit");
 
-  // 네트워크 지연을 흉내 내어 로딩 상태를 눈으로 볼 수 있게 한다 (학습용)
-  return new Promise<Response>((resolve) => {
-    setTimeout(() => {
-      if (limitParam !== null) {
-        // 커서 모드
-        const limit = Math.min(Math.max(1, Number(limitParam) || 5), MAX_LIMIT);
-        const cursorParam = sp.get("cursor");
-        const cursor = cursorParam ? Number(cursorParam) : null;
-        if (cursor !== null && !Number.isInteger(cursor)) {
-          resolve(Response.json({ error: "cursor 는 정수여야 합니다." }, { status: 400 }));
-          return;
-        }
-        const { posts, nextCursor } = getPostsByCursor(q, cursor, limit);
-        resolve(Response.json({ query: q, posts: posts.map(toItem), nextCursor }));
-        return;
-      }
+  await sleep(500); // 네트워크 지연을 흉내 내어 로딩 상태를 눈으로 볼 수 있게 한다 (학습용)
 
-      // 검색 모드 (기존 동작)
-      resolve(
-        Response.json({
-          query: q,
-          total: countPosts(),
-          posts: searchPosts(q).map(({ id, title, createdAt }) => ({ id, title, createdAt })),
-        }),
-      );
-    }, 500);
+  if (limitParam !== null) {
+    // 커서 모드
+    const limit = Math.min(Math.max(1, Number(limitParam) || 5), MAX_LIMIT);
+    const cursorParam = sp.get("cursor");
+    const cursor = cursorParam ? Number(cursorParam) : null;
+    if (cursor !== null && !Number.isInteger(cursor)) {
+      return Response.json({ error: "cursor 는 정수여야 합니다." }, { status: 400 });
+    }
+    const { posts, nextCursor } = await getPostsByCursor(q, cursor, limit);
+    return Response.json({ query: q, posts: posts.map(toItem), nextCursor });
+  }
+
+  // 검색 모드 (기존 동작)
+  const [total, found] = await Promise.all([countPosts(), searchPosts(q)]);
+  return Response.json({
+    query: q,
+    total,
+    posts: found.map(({ id, title, createdAt }) => ({ id, title, createdAt })),
   });
 }

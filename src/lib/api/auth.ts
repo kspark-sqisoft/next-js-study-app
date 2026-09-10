@@ -91,15 +91,15 @@ export async function authenticate(request: Request): Promise<Principal | null> 
   if (token === null) return null;
 
   const isApiKey = token.startsWith(API_KEY_PREFIX);
-  const userId = isApiKey ? findUserIdByApiKey(token) : await userIdFromAccessToken(token);
+  const userId = isApiKey ? await findUserIdByApiKey(token) : await userIdFromAccessToken(token);
   if (userId === null) {
     throw unauthorized(isApiKey ? "폐기되었거나 존재하지 않는 API 키입니다." : "토큰이 유효하지 않거나 만료되었습니다.");
   }
 
-  const user = findUserById(userId); // 탈퇴 등으로 사용자가 사라졌을 수 있다
+  const user = await findUserById(userId); // 탈퇴 등으로 사용자가 사라졌을 수 있다
   if (!user) throw unauthorized("토큰에 담긴 사용자를 찾을 수 없습니다.");
 
-  if (isApiKey) touchApiKey(token); // 마지막 사용 시각 기록
+  if (isApiKey) await touchApiKey(token); // 마지막 사용 시각 기록
   return { user, via: isApiKey ? "api_key" : "access_token" };
 }
 

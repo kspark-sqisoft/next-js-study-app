@@ -14,7 +14,7 @@ export const metadata: Metadata = { title: "글 수정 | Next.js Study App" };
 
 // [id]/page.tsx 와 같은 규칙. 이 세그먼트도 동적 라우트라 최소 1개를 돌려줘야 한다.
 export async function generateStaticParams() {
-  const ids = getPostIds().slice(0, 2);
+  const ids = (await getPostIds()).slice(0, 2);
   return ids.length > 0 ? ids.map((id) => ({ id: String(id) })) : [{ id: "0" }];
 }
 

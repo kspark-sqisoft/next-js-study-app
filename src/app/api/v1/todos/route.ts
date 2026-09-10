@@ -17,7 +17,7 @@ export const GET = apiRoute(async ({ request }) => {
   // 쿼리에 없으면 null(전체), 있으면 boolean 으로
   const filter = completed === undefined ? null : completed === "true";
 
-  const { todos, total } = listTodos(filter, limit, offset);
+  const { todos, total } = await listTodos(filter, limit, offset);
   return okList(todos.map(serializeTodo), paginationOf(total, limit, offset, todos.length));
 });
 
@@ -25,9 +25,9 @@ export const POST = apiRoute(async ({ request, auth }) => {
   requireAuth(auth);
   const { title, completed } = await parseJsonBody(request, todoCreateSchema);
 
-  const todo = createTodo(title);
+  const todo = await createTodo(title);
   // createTodo 는 미완료로만 만든다. completed: true 로 만들어 달라고 하면 한 번 더 갱신한다.
-  if (completed) setTodoCompleted(todo.id, true);
+  if (completed) await setTodoCompleted(todo.id, true);
 
   // /todos 화면은 "use cache" 가 아니라 revalidatePath 로 갱신한다 (src/app/todos/actions.ts 와 같은 방식).
   // Route Handler 에서 부르면 "다음에 그 경로를 방문할 때" 다시 렌더링된다.

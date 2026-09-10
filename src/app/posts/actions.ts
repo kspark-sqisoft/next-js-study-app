@@ -54,7 +54,7 @@ export async function createPostAction(_prev: PostFormState, formData: FormData)
   const saved = await saveImage(imageFrom(formData));
   if (saved && "error" in saved) return { errors: { image: [saved.error] }, fields: raw };
 
-  const post = createPost(result.data.title, result.data.content, user.id, saved?.name ?? null);
+  const post = await createPost(result.data.title, result.data.content, user.id, saved?.name ?? null);
 
   // updateTag: 다음 요청이 "새 데이터를 기다렸다가" 응답한다 (read-your-own-writes).
   updateTag("posts");
@@ -87,7 +87,7 @@ export async function updatePostAction(id: number, _prev: PostFormState, formDat
     imagePath = null;
   }
 
-  updatePost(id, result.data.title, result.data.content, imagePath);
+  await updatePost(id, result.data.title, result.data.content, imagePath);
   updateTag("posts");
   updateTag(`post-${id}`);
   redirect(`/posts/${id}`);
@@ -102,7 +102,7 @@ export async function deletePostAction(id: number) {
   if (!post) return { error: "이미 삭제된 글입니다." };
   if (post.authorId !== user.id) return { error: "본인이 작성한 글만 삭제할 수 있습니다." };
 
-  deletePost(id); // comments 는 ON DELETE CASCADE 로 함께 삭제
+  await deletePost(id); // comments 는 ON DELETE CASCADE 로 함께 삭제
   await deleteImage(post.imagePath); // 첨부 이미지 파일도 정리
   updateTag("posts");
   updateTag(`post-${id}`);
@@ -132,14 +132,14 @@ export async function addCommentAction(
   if (!post) return { error: "존재하지 않는 글입니다." };
 
   if (parentId !== null) {
-    const parent = findComment(parentId);
+    const parent = await findComment(parentId);
     // 부모가 같은 글의 "최상위" 댓글이어야 한다 → 답글의 답글(3단)은 막는다
     if (!parent || parent.postId !== postId || parent.parentId !== null) {
       return { error: "답글을 달 수 없는 댓글입니다." };
     }
   }
 
-  createComment(postId, user.id, result.data.content, parentId);
+  await createComment(postId, user.id, result.data.content, parentId);
   updateTag(commentsTag(postId));
   return { ok: true };
 }
@@ -149,11 +149,11 @@ export async function deleteCommentAction(commentId: number) {
   const user = await getCurrentUser();
   if (!user) return { error: "로그인이 필요합니다." };
 
-  const comment = findComment(commentId);
+  const comment = await findComment(commentId);
   if (!comment) return { error: "이미 삭제된 댓글입니다." };
   if (comment.authorId !== user.id) return { error: "본인이 쓴 댓글만 삭제할 수 있습니다." };
 
-  deleteComment(commentId);
+  await deleteComment(commentId);
   updateTag(commentsTag(comment.postId));
   return { ok: true };
 }

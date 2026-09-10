@@ -29,12 +29,12 @@ export async function signupAction(_prev: AuthFormState, formData: FormData): Pr
   const { name, email, password } = result.data;
 
   // 2. 중복 확인
-  if (findUserWithHashByEmail(email)) {
+  if (await findUserWithHashByEmail(email)) {
     return { errors: { email: ["이미 가입된 이메일입니다."] }, fields: { name, email } };
   }
 
   // 3. 비밀번호는 해시해서 저장. 원문은 어디에도 남기지 않는다
-  const user = createUser(name, email, await hashPassword(password));
+  const user = await createUser(name, email, await hashPassword(password));
 
   // 4. 세션 쿠키 발급 → 5. 이동
   await createSession(user.id);
@@ -55,7 +55,7 @@ export async function loginAction(_prev: AuthFormState, formData: FormData): Pro
 
   // 이메일이 없어도, 비밀번호가 틀려도 같은 메시지를 준다.
   // "가입된 이메일인지" 를 알려 주면 계정 존재 여부를 탐색하는 데 쓰일 수 있다.
-  const user = findUserWithHashByEmail(email);
+  const user = await findUserWithHashByEmail(email);
   const ok = user ? await verifyPassword(password, user.password_hash) : false;
   if (!user || !ok) {
     return { errors: { form: ["이메일 또는 비밀번호가 올바르지 않습니다."] }, fields: { email } };

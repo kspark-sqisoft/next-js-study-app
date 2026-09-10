@@ -24,6 +24,7 @@ npm install
 cp .env.example .env   # DB 파일 경로 + 세션 서명 키
 # .env 의 SESSION_SECRET 을 아래 명령 결과로 바꾼다
 openssl rand -base64 32
+npm run db:migrate     # 테이블 생성 (Prisma 마이그레이션)
 npm run db:seed        # 샘플 데이터 넣기 (계정 2개 포함)
 npm run dev            # http://localhost:3000
 ```
@@ -38,8 +39,8 @@ npm run start          # 빌드 결과 실행
 npm run lint
 npm test               # 단위/컴포넌트 테스트 (Vitest)
 npm run test:e2e       # 브라우저 E2E 테스트 (Playwright)
-npm run db:init        # DB 파일/테이블만 생성 (앱 첫 실행 시 자동으로도 됨)
-npm run db:seed -- --reset   # 샘플 데이터로 초기화
+npm run db:migrate     # 마이그레이션 적용 (Prisma)
+npm run db:reset       # DB 삭제 + 마이그레이션 + 시드
 ```
 
 샘플 계정 (비밀번호는 둘 다 `password123`):
@@ -1655,6 +1656,70 @@ tRPC 가 여전히 필요한 곳은 Server Action 이 못 하는 것들이다.
 | `feat/trpc` | 클라이언트 페칭(`/client-fetch`, `/feed`)과 댓글을 tRPC 로 교체. 서버 라우터 하나에서 타입이 끝까지 흐른다 | `src/server/trpc/`, `src/app/(demos)/**`, 댓글 컴포넌트 |
 
 각 브랜치의 README 에는 그 브랜치에서 달라진 점만 따로 정리한 절이 있다.
+
+---
+
+## 브랜치 feat/prisma 에서 달라진 점
+
+이 브랜치는 `main` 과 **같은 화면, 같은 함수 이름, 같은 DB 파일** 을 쓰면서 데이터 층만 Prisma 로 바꾼 것이다.
+`git diff main..feat/prisma -- src/lib` 로 같은 함수가 어떻게 달라졌는지 나란히 볼 수 있다.
+
+### 무엇이 바뀌었나
+
+| 항목 | main (직접 SQL) | feat/prisma |
+| --- | --- | --- |
+| 스키마 정의 | `src/lib/schema.ts` 의 SQL 문자열 + `hasColumn`/`ALTER TABLE` 수동 마이그레이션 | `prisma/schema.prisma` 하나. 마이그레이션은 `prisma/migrations/*/migration.sql` 로 이력이 남는다 |
+| DB 연결 | `src/lib/db.ts` (`node:sqlite` `DatabaseSync`) | `src/lib/prisma.ts` (`PrismaClient` + `better-sqlite3` 어댑터) |
+| 타입 | `PostRow`(DB 행) 와 `Post`(앱) 두 벌을 손으로 유지 | `src/generated/prisma/` 에 자동 생성. `Prisma.PostGetPayload<{ include }>` 로 JOIN 결과 타입까지 추론 |
+| 조회 | `db.prepare("SELECT ... LEFT JOIN users ...").all()` | `prisma.post.findMany({ include: { author: { select: { name: true } } } })` |
+| 검색 조건 | `WHERE title LIKE ? OR content LIKE ?` 문자열 조립 | `{ OR: [{ title: { contains: q } }, { content: { contains: q } }] }` 객체 |
+| 커서 | `p.id < ?` | `{ id: { lt: cursor } }` |
+| 일괄 처리 | `IN (?, ?, ?)` 자리표시자를 개수만큼 만듦 | `{ id: { in: ids } }` |
+| 동기/비동기 | `node:sqlite` 는 동기. 함수들이 바로 값을 돌려줬다 | Prisma 는 전부 비동기. **모든 데이터 함수가 `async` 가 되고 호출부에 `await` 가 붙었다** |
+| 시드 | `scripts/seed-db.mts` (SQL) | `prisma/seed.ts` (Prisma Client, `tsx` 로 실행). `prisma db seed` 가 부른다 |
+| 초기화 | `npm run db:init` | `npm run db:migrate` (마이그레이션 적용), `npm run db:reset` (삭제 + 마이그레이션 + 시드) |
+| 단위 테스트 DB | `ensureSchema()` 로 임시 파일에 테이블 생성 | `prisma/migrations/*/migration.sql` 을 그대로 실행해 임시 파일 생성 (마이그레이션 파일이 스키마의 단일 출처) |
+
+바뀌지 않은 것: 페이지, Server Action, Route Handler, 테스트의 **함수 호출 방식**. `getPostsPage(q, page)` 같은 이름과 반환 타입을 그대로 두었기 때문에, 데이터 층을 통째로 갈아 끼워도 위 층은 `await` 추가 말고는 손대지 않았다. 이것이 "SQL 은 `src/lib/` 에만 둔다" 규칙의 효용이다.
+
+### 새로 생긴 파일
+
+```
+prisma.config.ts          # Prisma CLI 설정 (스키마 위치, 마이그레이션 폴더, DATABASE_URL, seed 명령)
+prisma/
+  schema.prisma           # 모델 정의. @@map/@map 으로 기존 snake_case 테이블·컬럼 이름 유지
+  migrations/0_init/      # 초기 마이그레이션 SQL (기존 DB 에는 `migrate resolve --applied` 로 "이미 적용됨" 표시)
+  seed.ts                 # 샘플 데이터
+src/generated/prisma/     # prisma generate 산출물 (git 제외, npm install 의 postinstall 로 재생성)
+src/lib/prisma.ts         # PrismaClient 싱글턴
+src/lib/sql-now.ts        # datetime('now') 형식의 현재 시각 (기존 TEXT 날짜 컬럼과 호환)
+```
+
+`.env` 에 `DATABASE_URL="file:./data/app.db"` 가 추가됐다. `DATABASE_PATH` 와 같은 파일을 가리킨다.
+
+### 흐름
+
+```mermaid
+flowchart LR
+    S[schema.prisma] -- prisma migrate dev --> M[migrations/*.sql] --> DB[(data/app.db)]
+    S -- prisma generate --> G[src/generated/prisma<br/>타입 + 클라이언트]
+    G --> L[src/lib/posts.ts 등<br/>prisma.post.findMany]
+    L --> P[페이지 · Server Action · Route Handler<br/>main 과 같은 함수 이름]
+    DB --> L
+```
+
+### 직접 겪은 것들
+
+- **기존 DB 와 호환 유지.** 새 프로젝트라면 `DateTime` 타입을 쓰지만, 이 DB 는 날짜를 `TEXT` 로 저장하고 있어 `String` + `@default(dbgenerated("(datetime('now'))"))` 로 두었다. `UPDATE` 때는 SQLite 함수를 못 부르므로 `sqlNow()` 로 같은 형식의 문자열을 만들어 넣는다. 도구를 나중에 붙이면 이런 타협이 생긴다는 예.
+- **`prisma db pull` 로 시작.** 기존 테이블을 역생성한 뒤 모델 이름만 PascalCase 로 다듬었다. 처음부터 Prisma 로 시작했다면 이 단계가 없다.
+- **`delete()` 는 없으면 예외.** main 의 "삭제됐으면 true" 의미를 지키려고 `deleteMany({ where: { id } }).count > 0` 을 썼다.
+- **비동기 전환이 가장 큰 작업.** 데이터 함수 30개가 `async` 가 되면서 호출부 26개 파일에 `await` 가 들어갔다. `if (findUser(...))` 처럼 Promise 를 조건에 그대로 쓰면 항상 참이 되어 **컴파일은 통과하고 동작만 틀리는** 버그가 되므로, 호출부를 하나씩 확인해야 했다.
+- **Prisma 7 는 어댑터가 필수.** `@prisma/adapter-better-sqlite3` 가 실제 드라이버이고, `node:sqlite` 는 Prisma 가 아직 지원하지 않는다.
+- **`"use cache"` 와의 관계는 그대로.** Prisma 쿼리도 캐시 함수 안에서 그냥 호출하면 된다. 비동기라고 해서 자동으로 요청 시점이 되는 것은 아니라서 `getTodos` 의 `connection()` 도 그대로 필요하다.
+
+### 언제 이 브랜치 방식이 이기나
+
+테이블이 열 개를 넘고 관계가 늘어날 때. 이 프로젝트(테이블 5개)에서는 코드 양이 비슷하거나 오히려 조금 늘었다(설정 파일, 생성 단계). 대신 컬럼 이름을 바꿔 보면 차이가 바로 드러난다: main 은 SQL 문자열을 검색해야 하고, 이 브랜치는 `prisma/schema.prisma` 를 고치고 `npm run db:migrate:dev` 하면 타입이 바뀌어 틀린 곳이 전부 컴파일 에러로 나온다.
 
 ---
 
