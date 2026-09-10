@@ -157,8 +157,40 @@ Next.js 16 에서는 ISR 을 별도 설정이 아니라 `"use cache"` + `cacheLi
 ### 1-1. 렌더링 방식: SSG 와 SSR
 
 - `/` 홈은 요청별 데이터가 없어 **빌드 시 정적 HTML** 로 만들어진다 (SSG). `src/app/page.tsx` 에 특별한 설정이 없는데도 그렇게 되는 것이 App Router 의 기본 동작이다.
-- `/todos` 는 **요청마다 DB 를 읽는다** (SSR). 이렇게 만드는 스위치는 `src/lib/todos.ts` 의 `await connection()` 한 줄이다.
-- 왜 필요한가: `node:sqlite` 는 동기 드라이버라 그냥 호출하면 빌드 시점에 실행되어 결과가 HTML 에 굳어버린다. `connection()` 은 "요청이 들어온 뒤에 실행하라" 는 표시다. 실험: 이 줄을 지우고 `npm run build` 하면 `/todos` 가 `○ Static` 으로 바뀐다.
+- `/todos` 는 **요청마다 DB 를 읽는다** (SSR). 이렇게 만드는 스위치는 `src/lib/todos.ts` 의 `await connection()` 한 줄이다. 아래에서 자세히 설명한다.
+
+#### `await connection()` 한 줄이 SSG 를 SSR 로 바꾸는 이유
+
+핵심은 **"이 코드가 언제 실행되는가"** 다. 빌드할 때 한 번인지, 사용자가 접속할 때마다인지를 Next.js 가 정해야 한다.
+
+**Next.js 의 기본 태도: 미리 만들 수 있으면 미리 만든다.** `npm run build` 는 모든 페이지를 한 번씩 실행해 보고 결과 HTML 을 파일로 저장한다. 요청이 오면 그 파일을 그냥 준다(SSG). 빠르므로 이것이 기본값이다.
+"이 페이지는 요청마다 새로 만들어야 한다" 는 것은 페이지가 **요청에 의존하는 API** (`cookies()`, `headers()`, `searchParams`) 를 쓰는지로 판단한다. 요청이 있어야 값이 생기는 것들이라 빌드 시점에는 만들 수 없기 때문이다.
+
+**문제: DB 조회는 요청에 의존하는 API 가 아니다.**
+
+```ts
+const rows = db.prepare("SELECT * FROM todos").all();
+```
+
+이 코드는 쿠키도 헤더도 안 쓴다. 파일을 읽는 동기 함수 호출일 뿐이라, Next.js 눈에는 `JSON.parse` 나 `fs.readFileSync` 처럼 "언제 실행해도 같은 결과가 나오는 계산" 으로 보인다. 그래서 빌드 때 한 번 실행하고 그 결과를 HTML 에 굳혀 버린다.
+
+```
+빌드 시점  →  DB 에 todo 3개 있음        →  HTML 에 3개가 박힘
+다음 날    →  사용자가 todo 10개 추가     →  여전히 3개만 보임
+```
+
+**`await connection()` 이 하는 일**: Next.js 에게 보내는 신호다. "이 줄 아래 코드는 실제 사용자 요청(connection)이 들어온 다음에 실행하라." 빌드 시점의 프리렌더에서는 이 줄에서 멈추고(suspend) 아래를 실행하지 않는다. 요청이 오면 즉시 통과한다. 그래서 DB 조회가 빌드 결과에 굳지 않고 요청마다 실행된다.
+`cookies()` 가 "요청이 필요하다" 는 신호를 부수적으로 주는 것이라면, `connection()` 은 그 신호만 순수하게 보내는 함수다. 요청 데이터를 읽을 필요는 없지만 요청 시점에 실행되어야 하는 코드, 즉 `Math.random()`, `new Date()`, 동기 DB 드라이버를 위해 있다.
+
+**직접 확인해 보기**
+1. `src/lib/todos.ts` 에서 `await connection();` 줄을 지운다.
+2. `npm run build` → 결과 표에서 `/todos` 가 `◐ Partial Prerender` 에서 `○ Static` 으로 바뀐다.
+3. `npm run start` 로 띄우고 `/todos` 를 연다. `npm run db:seed -- --reset` 으로 DB 를 바꾼 뒤 새로고침해도 화면은 빌드 때 그대로다.
+4. 줄을 되돌리고 다시 빌드하면 요청마다 최신 데이터가 나온다.
+
+**Cache Components 에서의 추가 규칙**: `connection()` 아래 코드는 요청 시점에 실행되므로 정적 셸에 들어갈 수 없고 반드시 `<Suspense>` 안에 있어야 한다. `/todos` 에 `loading.tsx` 를 둔 이유가 그것이다(페이지 전체를 Suspense 로 감싼다). 그래서 빌드 표에 `○ Static` 이 아니라 `◐ Partial Prerender` 로 나온다. 셸(레이아웃, 스켈레톤)은 정적이고 목록 부분만 요청 시점에 채워진다는 뜻이다.
+
+**한 줄 요약**: DB 조회는 겉보기에 "그냥 계산" 이라 Next.js 가 빌드 때 실행해 굳혀 버린다. `await connection()` 은 "이 아래는 요청이 온 뒤에 실행하라" 는 표시라서, 이 한 줄이 페이지를 빌드 시점 렌더링(SSG)에서 요청 시점 렌더링(SSR)으로 바꾼다.
 
 ### 1-2. 데이터 접근 계층 (`src/lib/`)
 

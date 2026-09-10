@@ -30,12 +30,31 @@ function toTodo(row: TodoRow): Todo {
 }
 
 /**
- * 전체 목록 조회.
- * node:sqlite 는 동기 드라이버라 그냥 호출하면 빌드 시점에 실행되어 결과가 HTML 에 굳어버린다.
- * `await connection()` 을 먼저 두면 "요청이 들어온 뒤"에 실행되므로 매 요청마다 최신 데이터를 읽는다 (SSR).
+ * 전체 목록 조회. 이 함수의 핵심은 첫 줄의 `await connection()` 이다.
+ *
+ * [왜 필요한가]
+ * Next.js 는 `npm run build` 때 모든 페이지를 한 번 실행해 보고, 미리 만들 수 있으면 HTML 로 굳혀 둔다(SSG).
+ * "요청마다 새로 만들어야 하는 페이지" 는 cookies()/headers()/searchParams 처럼 요청이 있어야 값이 생기는
+ * API 를 쓰는지로 판단한다. 그런데 아래의 db.prepare().all() 은 쿠키도 헤더도 안 쓰는 동기 함수 호출이라,
+ * Next.js 눈에는 JSON.parse 나 fs.readFileSync 같은 "언제 실행해도 같은 계산" 으로 보인다.
+ * 그래서 connection() 이 없으면 빌드 시점에 한 번 실행되고, 그때의 todo 목록이 HTML 에 박힌 채
+ * 이후 요청에도 그대로 나간다. (revalidatePath 로 다시 만들기 전까지는 DB 가 바뀌어도 화면이 안 바뀐다)
+ *
+ * [connection() 이 하는 일]
+ * "이 줄 아래는 실제 사용자 요청(connection)이 들어온 다음에 실행하라" 는 신호다.
+ * 빌드 시점의 프리렌더에서는 여기서 멈추고(suspend) 아래를 실행하지 않는다. 요청이 오면 즉시 통과한다.
+ * 요청 데이터를 읽을 필요는 없지만 요청 시점에 실행되어야 하는 코드(Math.random, new Date, 동기 DB 드라이버)를
+ * 위한 함수이며, 결과적으로 이 페이지를 빌드 시점 렌더링(SSG)에서 요청 시점 렌더링(SSR)으로 바꾼다.
+ *
+ * [Cache Components 와의 관계]
+ * connection() 아래 코드는 정적 셸에 들어갈 수 없으므로 반드시 <Suspense> 안에서 호출되어야 한다.
+ * /todos 는 loading.tsx 가 페이지 전체를 Suspense 로 감싸 주기 때문에 빌드 표에 "◐ Partial Prerender" 로 나온다
+ * (셸은 정적, 목록만 요청 시점에 스트리밍).
+ *
+ * [실험] 이 줄을 지우고 npm run build → /todos 가 "○ Static" 이 되고, DB 를 바꿔도 화면이 안 변한다.
  */
 export async function getTodos(): Promise<Todo[]> {
-  await connection();
+  await connection(); // 프리렌더에서는 여기서 멈춤. 요청 시점에만 아래가 실행된다
   const rows = db
     .prepare("SELECT * FROM todos ORDER BY completed ASC, id DESC") // 미완료 먼저, 최신순
     .all() as TodoRow[];
