@@ -463,6 +463,7 @@ Next.js 16 에서는 ISR 을 별도 설정이 아니라 `"use cache"` + `cacheLi
 | 32 | zustand 기본: 형제 컴포넌트가 공유하는 UI 상태 (todos 다중 선택) | `src/stores/todo-selection-store.ts`, Part 6 |
 | 33 | zustand persist: localStorage 영속과 SSR hydration (최근 본 글) | `src/stores/recently-viewed-store.ts`, Part 6 |
 | 34 | 디바운스 검색: 입력이 멈추면 URL 갱신, `useTransition` 으로 깜빡임 방지 | `src/hooks/use-debounced-callback.ts`, `src/app/posts/post-search-form.tsx` (2-9) |
+| 35 | 이 방식의 한계와 Prisma · tRPC 를 쓰는 이유. 비교 브랜치 | Part 7, `feat/prisma`, `feat/trpc` 브랜치 |
 
 이후에 볼 항목은 [docs/NEXT_STEPS.md](docs/NEXT_STEPS.md) 에 정리해 두었다.
 
@@ -1597,6 +1598,63 @@ E2E(`e2e/zustand.spec.ts`)가 "서버 HTML 에는 배지가 없다" 를 확인�
 - **서버 데이터를 넣지 않는다.** 글 목록을 스토어에 복사하면 "어느 쪽이 진짜인가" 문제가 생기고 캐시 무효화와 어긋난다. 서버 데이터는 서버 컴포넌트 + Server Action + `updateTag` 로, 브라우저 쪽 캐시가 필요하면 SWR / TanStack Query 로.
 - **작으면 `useState` 로 충분하다.** 한 컴포넌트 안의 상태(`TodoItem` 의 `editing`)까지 스토어로 올리지 않는다. 형제 간 공유, 페이지 간 유지, localStorage 영속이 필요할 때 꺼낸다.
 - **테스트는 React 없이 된다.** `useTodoSelection.getState().toggle(1)` 처럼 스토어를 직접 조작하고 `getState()` 로 확인한다 (`src/stores/*.test.ts`). 모듈 싱글턴이라 테스트 사이에 초기화해야 한다.
+
+---
+
+## Part 7. 이 방식이면 충분한가? Prisma 와 tRPC 를 쓰는 이유
+
+지금까지의 방식(서버 컴포넌트 + Server Action + 직접 SQL)으로 이 규모에서는 문제가 없다. App Router 이후 이 조합만으로 충분한 프로젝트가 많아졌다. Prisma 와 tRPC 는 **이 방식이 부족해지는 지점** 을 메우는 도구인데, 그 지점은 이 프로젝트 코드에 이미 조금씩 보인다.
+
+### 7-1. Prisma(또는 Drizzle)가 해결하는 것: 데이터 층의 반복 노동
+
+지금 손으로 하고 있는 일들과, 규모가 커지면 생기는 문제:
+
+| 지금 하는 일 | 어디에 | 커지면 생기는 문제 |
+| --- | --- | --- |
+| 타입을 두 벌 쓴다 (`PostRow` DB 행, `Post` 앱 타입) | `posts.ts`, `comments.ts` | 테이블 20개면 40개 타입을 손으로 맞춰야 하고, 컬럼 하나 추가하면 여러 파일을 고친다 |
+| 행 변환 함수 (`toPost`, `toTodo`) | 각 lib 파일 | 같은 코드가 테이블마다 반복된다 |
+| SQL 문자열 | `db.prepare("SELECT ... WHERE p.id = ?")` | 오타가 컴파일 때 안 잡히고 실행해야 드러난다. 컬럼 이름을 바꾸면 문자열 검색으로 찾아야 한다 |
+| 수동 마이그레이션 | `schema.ts` 의 `hasColumn` + `ALTER TABLE` | 컬럼 추가는 되지만 이름 변경, 타입 변경, 롤백은 직접 짜야 한다. 팀원 PC 와 서버의 스키마 상태를 추적할 방법이 없다 |
+| 동적 SQL 조립 | `getPostsByCursor` 의 조건 배열, `IN (?, ?, ?)` 자리표시자 | 조건이 늘수록 문자열 조립이 위험해진다 |
+| JOIN 과 관계 | `LEFT JOIN users` 직접 작성 | 글에 댓글 수, 작성자, 태그를 같이 가져오려면 SQL 이 길어진다 |
+
+ORM 은 이걸 **스키마 파일 하나에서 타입 자동 생성, 타입 안전한 쿼리, 마이그레이션 이력 관리** 로 바꾼다. `prisma.post.findMany({ where: { title: { contains: q } }, include: { author: true } })` 처럼 쓰면 컬럼 이름 오타가 컴파일 에러가 되고, 반환 타입이 자동으로 나온다.
+
+대신 SQL 이 가려져서 성능 문제를 찾기 어렵고, 학습 곡선과 빌드 단계(`prisma generate`)가 추가된다. 그래서 **학습 초기에는 SQL 을 직접 쓰는 게 맞고**, 테이블이 열 개를 넘고 관계가 복잡해지면 ORM 이 값을 한다. 이 프로젝트는 테이블 5개라 아직 그 문턱 아래다.
+
+### 7-2. tRPC 가 해결하는 것: 브라우저와 서버 사이의 타입 단절
+
+이건 Server Action 이 이미 상당 부분 해결한 문제라 필요성이 예전보다 작다. Server Action 은 클라이언트에서 함수처럼 부르고 타입이 그대로 넘어온다. 그래서 **App Router 앱 내부에서는 tRPC 가 없어도 된다.**
+
+tRPC 가 여전히 필요한 곳은 Server Action 이 못 하는 것들이다.
+
+| Server Action 의 한계 | tRPC 가 주는 것 |
+| --- | --- |
+| POST 전용이고 순차 실행된다. 문서도 "데이터 조회용이 아니라 변경용" 이라고 못 박는다 | GET 조회를 타입 안전하게, 병렬로, TanStack Query 와 결합해 캐시·재검증까지 |
+| 같은 Next.js 앱 안에서만 부를 수 있다 | 별도 React Native 앱, 다른 프론트엔드가 같은 타입으로 호출 |
+| 입력 검증, 에러 형식, 미들웨어(인증, 레이트 리밋)를 액션마다 직접 쓴다 | 라우터 단위 미들웨어와 Zod 입력 스키마가 구조적으로 붙는다 |
+
+이 프로젝트에서 그 단절이 실제로 보이는 곳이 `/client-fetch` 다. `post-search.tsx` 는 `/api/posts` 응답 타입을 `SearchResponse` 로 **손으로** 적어 두었다. 서버가 필드 이름을 바꿔도 컴파일은 통과하고 실행해야 깨진다. `/api/v1` 도 검증, 직렬화, OpenAPI 명세를 전부 손으로 만들었는데, tRPC 는 그 대부분을 라우터 정의 하나에서 뽑아낸다. 반대로 tRPC 는 외부 개발자용 REST API 로는 부적합해서(tRPC 클라이언트가 필요), `/api/v1` 같은 공개 API 는 여전히 REST 로 만든다.
+
+### 7-3. 정리: 언제 꺼내나
+
+- **지금 방식이 맞는 경우**: 한 팀이 Next.js 앱 하나를 만들고, 테이블이 적고, 화면과 서버가 같은 저장소에 있다. 대부분의 사이드 프로젝트와 초기 서비스가 여기에 해당한다.
+- **Prisma 나 Drizzle 을 꺼내는 시점**: 타입 두 벌 유지가 귀찮아지고, 마이그레이션을 팀원과 공유해야 하고, 관계 쿼리가 늘어날 때. 이 프로젝트에서 다음으로 생길 문제다.
+- **tRPC 를 꺼내는 시점**: 클라이언트 페칭이 많은 대시보드형 화면이거나, 모바일 앱처럼 같은 타입을 쓰는 두 번째 클라이언트가 생길 때. 서버 컴포넌트 중심 앱에서는 거의 안 꺼낸다.
+
+"모든 것에 문제 없다" 기보다는 **"이 규모에서는 없고, 규모가 커지면 어떤 문제가 먼저 오는지 이미 코드에 힌트가 있다"** 가 정확한 답이다.
+
+### 7-4. 비교용 브랜치
+
+같은 앱을 세 가지 데이터 접근/전송 방식으로 비교할 수 있도록 브랜치를 나눠 두었다. `git switch <브랜치>` 로 옮겨 가며 같은 파일이 어떻게 달라지는지 본다.
+
+| 브랜치 | 내용 | 비교해서 볼 파일 |
+| --- | --- | --- |
+| `main` | 직접 SQL (`node:sqlite`) + Server Action | `src/lib/*.ts`, `src/lib/schema.ts` |
+| `feat/prisma` | 데이터 층을 Prisma 로 교체. 스키마 파일, 자동 생성 타입, 마이그레이션 | `prisma/schema.prisma`, `src/lib/*.ts` (같은 함수 이름, 다른 구현) |
+| `feat/trpc` | 클라이언트 페칭(`/client-fetch`, `/feed`)과 댓글을 tRPC 로 교체. 서버 라우터 하나에서 타입이 끝까지 흐른다 | `src/server/trpc/`, `src/app/(demos)/**`, 댓글 컴포넌트 |
+
+각 브랜치의 README 에는 그 브랜치에서 달라진 점만 따로 정리한 절이 있다.
 
 ---
 
