@@ -2,9 +2,11 @@
 // 부모에서 <Suspense> 로 감싸므로, 이 컴포넌트가 끝날 때까지 페이지 전체가 기다리지 않는다.
 import Link from "next/link";
 import { getOtherPosts } from "@/lib/posts";
+import { log } from "@/lib/study-log";
 
 export async function OtherPosts({ excludeId }: { excludeId: number }) {
   const posts = await getOtherPosts(excludeId);
+  log.render(`OtherPosts(excludeId=${excludeId}) ← ${posts.length}건. 1.5초 뒤 도착 → 이 부분만 스트리밍으로 교체됨`);
 
   if (posts.length === 0) {
     return <p className="text-sm text-muted-foreground">다른 글이 없습니다.</p>;

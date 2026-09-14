@@ -11,6 +11,7 @@ import { serializeComment } from "@/lib/api/serialize";
 import { commentsTag, createComment, findComment, listComments } from "@/lib/comments";
 import { findPost } from "@/lib/posts";
 import { commentCreateSchema, listQuerySchema } from "@/lib/schemas/api";
+import { log } from "@/lib/study-log";
 
 function requirePost(rawId: string) {
   const id = parseIdParam(rawId);
@@ -43,6 +44,7 @@ export const POST = apiRoute<{ id: string }>(async ({ request, params, auth }) =
   }
 
   const id = createComment(post.id, user.id, content, parentId ?? null);
+  log.invalidate("revalidateTag:expire0", [commentsTag(post.id)]);
   revalidateTag(commentsTag(post.id), { expire: 0 });
 
   return ok(serializeComment(findComment(id)!), 201);

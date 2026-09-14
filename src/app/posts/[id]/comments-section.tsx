@@ -3,13 +3,16 @@
 // 두 가지를 여기서 합쳐 "내 댓글에만 삭제 버튼" 을 그린다.
 import { getCurrentUser } from "@/lib/dal";
 import { getCommentThreads, type Comment } from "@/lib/comments";
+import { log } from "@/lib/study-log";
 import { CommentForm } from "./comment-form";
 import { DeleteCommentButton } from "./delete-comment-button";
 import { ReplyToggle } from "./reply-toggle";
 
 export async function CommentsSection({ postId }: { postId: number }) {
   // 캐시된 댓글과 요청별 사용자 정보를 동시에 가져온다
+  log.render(`CommentsSection(postId=${postId}) → getCommentThreads(캐시, 모두 공유) + getCurrentUser(요청별) 동시 호출`);
   const [threads, user] = await Promise.all([getCommentThreads(postId), getCurrentUser()]);
+  log.render(`CommentsSection ← 댓글 스레드 ${threads.length}개, 현재 사용자 ${user ? user.name : "없음"} → 삭제 버튼은 여기서 사용자별로 결정`);
   const currentUserId = user?.id ?? null;
   const total = threads.reduce((n, t) => n + 1 + t.replies.length, 0);
 

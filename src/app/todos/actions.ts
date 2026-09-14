@@ -12,6 +12,7 @@ import {
   setTodosCompleted,
   updateTodoTitle,
 } from "@/lib/todos";
+import { log } from "@/lib/study-log";
 
 // useActionState 에서 사용하는 상태 타입. 에러가 없으면 null.
 export type ActionState = { error?: string } | null;
@@ -31,39 +32,51 @@ export async function addTodoAction(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
+  log.action("addTodoAction 시작");
   const title = parseTitle(formData.get("title"));
   if (!title) {
+    log.action("  ↳ 검증 실패 → 에러 반환");
     return { error: `할 일은 1~${MAX_TITLE}자로 입력하세요.` };
   }
-  createTodo(title);
+  const todo = createTodo(title);
+  log.action(`  ↳ 할 일 #${todo.id} 추가`);
+  log.invalidate("revalidatePath", ["/todos"]);
   revalidatePath("/todos"); // /todos 페이지를 서버에서 다시 렌더링해 최신 목록을 내려보낸다
   return null;
 }
 
 // 완료 여부 토글
 export async function toggleTodoAction(id: number, completed: boolean) {
+  log.action(`toggleTodoAction(id=${id}, completed=${completed})`);
   setTodoCompleted(id, completed);
+  log.invalidate("revalidatePath", ["/todos"]);
   revalidatePath("/todos");
 }
 
 // 제목 수정. 검증 실패 시 에러 객체 반환.
 export async function renameTodoAction(id: number, title: string) {
   const parsed = parseTitle(title);
+  log.action(`renameTodoAction(id=${id})`);
   if (!parsed) return { error: `할 일은 1~${MAX_TITLE}자로 입력하세요.` };
   updateTodoTitle(id, parsed);
+  log.invalidate("revalidatePath", ["/todos"]);
   revalidatePath("/todos");
   return null;
 }
 
 // 단건 삭제
 export async function deleteTodoAction(id: number) {
+  log.action(`deleteTodoAction(id=${id})`);
   deleteTodo(id);
+  log.invalidate("revalidatePath", ["/todos"]);
   revalidatePath("/todos");
 }
 
 // 완료 항목 일괄 삭제. 삭제 개수를 반환해 토스트 메시지에 사용한다.
 export async function clearCompletedAction() {
   const count = deleteCompletedTodos();
+  log.action(`clearCompletedAction → ${count}건 삭제. 반환값이 클라이언트 토스트에 쓰인다`);
+  log.invalidate("revalidatePath", ["/todos"]);
   revalidatePath("/todos");
   return count;
 }
@@ -85,6 +98,8 @@ export async function bulkSetCompletedAction(ids: number[], completed: boolean) 
   const valid = parseIds(ids);
   if (!valid) return { error: "선택한 항목이 올바르지 않습니다." };
   const changed = setTodosCompleted(valid, completed);
+  log.action(`bulkSetCompletedAction(ids=[${valid.join(",")}], completed=${completed}) → ${changed}건 변경 (id 목록은 클라이언트가 보냈으므로 서버에서 재검증)`);
+  log.invalidate("revalidatePath", ["/todos"]);
   revalidatePath("/todos");
   return { changed };
 }
@@ -93,6 +108,8 @@ export async function bulkDeleteAction(ids: number[]) {
   const valid = parseIds(ids);
   if (!valid) return { error: "선택한 항목이 올바르지 않습니다." };
   const deleted = deleteTodos(valid);
+  log.action(`bulkDeleteAction(ids=[${valid.join(",")}]) → ${deleted}건 삭제`);
+  log.invalidate("revalidatePath", ["/todos"]);
   revalidatePath("/todos");
   return { deleted };
 }

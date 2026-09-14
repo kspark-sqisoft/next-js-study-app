@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getPost, getPostIds } from "@/lib/posts";
 import { imageUrl } from "@/lib/uploads";
+import { log } from "@/lib/study-log";
 import { CommentsSection } from "./comments-section";
 import { ErrorTrigger } from "./error-trigger";
 import { OtherPosts } from "./other-posts";
@@ -23,6 +24,7 @@ import { RecentlyViewedLoader } from "./recently-viewed-loader";
 // DB 가 비어 있으면(첫 clone 등) 자리표시자를 주고, 페이지에서 notFound() 로 처리한다.
 export async function generateStaticParams() {
   const ids = getPostIds().slice(0, 2); // 최신 2개만 빌드 시 생성, 나머지는 첫 요청 때
+  log.build(`generateStaticParams(/posts/[id]) → 미리 렌더링할 id: [${ids.join(", ")}] (빌드 시 실행, dev 에서는 첫 요청 때)`);
   return ids.length > 0 ? ids.map((id) => ({ id: String(id) })) : [{ id: "0" }];
 }
 
@@ -31,6 +33,7 @@ export async function generateMetadata({
   params,
 }: PageProps<"/posts/[id]">): Promise<Metadata> {
   const { id } = await params;
+  log.render(`generateMetadata(/posts/${id}) → getPost 호출. 아래 PostDetail 도 같은 인자로 부르지만 캐시 키가 같아 몸체는 한 번만 실행된다`);
   const post = await getPost(Number(id));
   return { title: post ? `${post.title} | Next.js Study App` : "글 없음" };
 }
@@ -53,8 +56,13 @@ async function PostDetail({ params }: Pick<PageProps<"/posts/[id]">, "params">) 
 
   // 숫자가 아니거나 없는 글이면 같은 세그먼트의 not-found.tsx 를 렌더링한다
   if (!Number.isInteger(numericId)) notFound();
+  log.render(`PostDetail → getPost(${numericId}) 호출 (params 를 읽으므로 Suspense 안)`);
   const post = await getPost(numericId);
-  if (!post) notFound();
+  if (!post) {
+    log.render(`PostDetail ← 글 #${numericId} 없음 → notFound() → not-found.tsx 렌더링`);
+    notFound();
+  }
+  log.render(`PostDetail ← "${post.title}". 이어서 PostOwnerActions / CommentsSection / OtherPosts 가 각자 Suspense 안에서 스트리밍`);
 
   return (
     <>

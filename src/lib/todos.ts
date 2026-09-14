@@ -2,6 +2,7 @@
 import "server-only";
 import { connection } from "next/server";
 import { db } from "@/lib/db";
+import { log } from "@/lib/study-log";
 
 // 앱에서 사용하는 Todo 타입 (camelCase, boolean)
 export type Todo = {
@@ -55,6 +56,7 @@ function toTodo(row: TodoRow): Todo {
  */
 export async function getTodos(): Promise<Todo[]> {
   await connection(); // 프리렌더에서는 여기서 멈춤. 요청 시점에만 아래가 실행된다
+  log.render("getTodos() — connection() 통과 → 요청 시점 실행 (SSR). 캐시 없이 매번 DB 조회");
   const rows = db
     .prepare("SELECT * FROM todos ORDER BY completed ASC, id DESC") // 미완료 먼저, 최신순
     .all() as TodoRow[];
