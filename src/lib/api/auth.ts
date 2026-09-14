@@ -3,6 +3,9 @@
 //   Authorization: Bearer eyJhbGciOiJIUzI1NiJ9...   → 액세스 토큰 (사용자 대신 행동, 1시간)
 //   Authorization: Bearer sk_1a2b3c4d...            → API 키 (서버-투-서버, 무기한 + 폐기 가능)
 //
+// 세 번째 자격증명인 리프레시 토큰(rt_...)은 헤더로 받지 않는다. 액세스 토큰을 "다시 받는" 용도로만 쓰이며
+// POST /api/v1/auth/refresh 의 본문으로만 온다 (src/lib/refresh-tokens.ts).
+//
 // 왜 세션 쿠키를 안 쓰는가:
 //  1. 쿠키는 브라우저가 자동으로 붙인다 → 다른 사이트가 사용자를 시켜 요청을 보낼 수 있다(CSRF).
 //     Bearer 헤더는 자동으로 붙지 않으므로 CSRF 자체가 성립하지 않는다.
@@ -13,6 +16,8 @@ import { createHmac } from "node:crypto";
 import { SignJWT, jwtVerify } from "jose";
 import { API_KEY_PREFIX, findUserIdByApiKey, touchApiKey } from "@/lib/api-keys";
 import { forbidden, unauthorized } from "@/lib/api/http";
+import { serializeUser } from "@/lib/api/serialize";
+import { REFRESH_TOKEN_PREFIX, type IssuedRefreshToken } from "@/lib/refresh-tokens";
 import { findUserById, type User } from "@/lib/users";
 
 /** 액세스 토큰 유효기간(초). 짧게 두고, 오래 쓸 자격증명이 필요하면 API 키를 발급받게 한다. */
@@ -52,6 +57,24 @@ export async function issueAccessToken(userId: number): Promise<string> {
     .sign(accessTokenKey);
 }
 
+/**
+ * 로그인(/auth/token)·가입(/auth/register)·갱신(/auth/refresh)이 공통으로 돌려주는 본문.
+ * 세 엔드포인트의 응답 모양이 같아야 클라이언트가 "토큰 저장" 코드를 한 번만 짠다.
+ *
+ * - expiresIn:        액세스 토큰 수명(초). 이 시간 안에 refreshToken 으로 새 쌍을 받으면 비밀번호를 다시 묻지 않는다.
+ * - refreshExpiresIn: 리프레시 토큰이 속한 가족의 절대 만료까지 남은 초. 갱신할수록 줄어들고 0 이 되면 다시 로그인해야 한다.
+ */
+export async function tokenResponse(user: User, refresh: IssuedRefreshToken) {
+  return {
+    accessToken: await issueAccessToken(user.id),
+    tokenType: "Bearer" as const,
+    expiresIn: ACCESS_TOKEN_TTL_SECONDS,
+    refreshToken: refresh.token,
+    refreshExpiresIn: Math.max(0, Math.floor((refresh.expiresAt.getTime() - Date.now()) / 1000)),
+    user: serializeUser(user),
+  };
+}
+
 /** 액세스 토큰 검증. 위조·만료·발급자 불일치면 null. */
 async function userIdFromAccessToken(token: string): Promise<number | null> {
   try {
@@ -89,6 +112,13 @@ function bearerToken(request: Request): string | null {
 export async function authenticate(request: Request): Promise<Principal | null> {
   const token = bearerToken(request);
   if (token === null) return null;
+
+  // 리프레시 토큰을 헤더에 넣는 실수는 흔하다. 조용히 "유효하지 않은 토큰" 으로 처리하면 원인을 찾기 어려우므로 따로 알려 준다.
+  if (token.startsWith(REFRESH_TOKEN_PREFIX)) {
+    throw unauthorized(
+      "리프레시 토큰은 Authorization 헤더로 쓸 수 없습니다. POST /api/v1/auth/refresh 본문의 refreshToken 으로 보내 새 액세스 토큰을 받으세요.",
+    );
+  }
 
   const isApiKey = token.startsWith(API_KEY_PREFIX);
   const userId = isApiKey ? findUserIdByApiKey(token) : await userIdFromAccessToken(token);

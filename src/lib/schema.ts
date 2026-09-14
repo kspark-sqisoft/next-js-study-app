@@ -52,6 +52,21 @@ export const SCHEMA = `
     created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
   );
   CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id);
+
+  -- 공개 API 의 리프레시 토큰. 액세스 토큰(1시간)이 만료되면 이걸로 새 쌍을 받는다 (POST /api/v1/auth/refresh).
+  -- 액세스 토큰(JWT)과 달리 서버에 저장한다: 행이 있어야 유효하므로 로그아웃·재사용 감지 때 즉시 무효화할 수 있다.
+  CREATE TABLE IF NOT EXISTS refresh_tokens (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    family_id  TEXT    NOT NULL,            -- 로그인 한 번 = 가족(family) 하나. 회전으로 만든 새 토큰도 같은 값을 물려받는다
+    token_hash TEXT    NOT NULL UNIQUE,     -- 원문은 저장하지 않는다. SHA-256 해시만 (API 키와 같은 원칙)
+    expires_at TEXT    NOT NULL,            -- 만료 시각. 가족 전체가 같은 값을 공유한다 (로그인 시점 + 30일, 절대 수명)
+    used_at    TEXT,                        -- 회전으로 소비된 시각. NULL 이 아닌 토큰이 다시 오면 "재사용" → 가족 전체 폐기
+    revoked_at TEXT,                        -- 폐기 시각 (로그아웃, 재사용 감지). NULL 이 아니면 거부
+    created_at TEXT    NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_refresh_tokens_family ON refresh_tokens(family_id);
+  CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON refresh_tokens(user_id);
 `;
 
 /**

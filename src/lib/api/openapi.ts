@@ -9,6 +9,7 @@
 import "server-only";
 import { MAX_LIMIT, DEFAULT_LIMIT } from "@/lib/schemas/api";
 import { ACCESS_TOKEN_TTL_SECONDS } from "@/lib/api/auth";
+import { REFRESH_TOKEN_TTL_SECONDS } from "@/lib/refresh-tokens";
 
 const errorResponseSchema = {
   type: "object",
@@ -24,6 +25,7 @@ const errorResponseSchema = {
             "bad_request",
             "validation_failed",
             "unauthorized",
+            "refresh_token_reused",
             "forbidden",
             "not_found",
             "conflict",
@@ -103,6 +105,11 @@ export const openApiDocument = {
       `- 액세스 토큰: \`POST /auth/token\` 으로 발급. ${ACCESS_TOKEN_TTL_SECONDS}초 유효.`,
       "- API 키(`sk_...`): `POST /auth/keys` 로 발급. 만료 없음, 폐기 가능. 서버-투-서버용.",
       "",
+      `**리프레시 토큰(\`rt_...\`)**: 로그인 응답에 액세스 토큰과 함께 온다 (가족 수명 ${REFRESH_TOKEN_TTL_SECONDS / 86400}일).`,
+      "액세스 토큰이 만료되면 `POST /auth/refresh` 본문으로 보내 새 쌍을 받는다. 한 번 쓰면 소비되며(회전),",
+      "소비된 토큰을 다시 보내면 탈취로 간주해 그 로그인 세션의 토큰을 모두 폐기한다 (`refresh_token_reused`).",
+      "헤더에 넣는 용도가 아니다. `POST /auth/logout` 으로 폐기한다.",
+      "",
       "세션 쿠키는 받지 않는다. 브라우저에 로그인되어 있어도 이 API 에는 영향이 없다(CSRF 차단).",
       "",
       "**레이트 리밋**: 익명 60회/분, 인증 600회/분. 남은 횟수는 `X-RateLimit-*` 응답 헤더에 있다.",
@@ -179,6 +186,22 @@ export const openApiDocument = {
           createdAt: { type: "string" },
         },
       },
+      TokenResponse: {
+        type: "object",
+        description: "로그인·가입·갱신이 공통으로 돌려주는 토큰 묶음",
+        required: ["accessToken", "tokenType", "expiresIn", "refreshToken", "refreshExpiresIn", "user"],
+        properties: {
+          accessToken: { type: "string", description: "JWT. Authorization: Bearer 에 넣는다" },
+          tokenType: { type: "string", const: "Bearer" },
+          expiresIn: { type: "integer", description: "액세스 토큰 수명(초)" },
+          refreshToken: {
+            type: "string",
+            description: "rt_ 로 시작. POST /auth/refresh 본문으로만 보낸다. 한 번 쓰면 소비되므로 응답의 새 값으로 갈아 끼운다",
+          },
+          refreshExpiresIn: { type: "integer", description: "리프레시 토큰이 속한 로그인 세션(가족)의 절대 만료까지 남은 초" },
+          user: { $ref: "#/components/schemas/User" },
+        },
+      },
       ApiKey: {
         type: "object",
         required: ["id", "name", "prefix", "lastUsedAt", "revokedAt", "createdAt"],
@@ -212,7 +235,7 @@ export const openApiDocument = {
           }),
         },
         responses: {
-          201: { description: "생성됨. 액세스 토큰이 함께 온다", ...jsonContent({ type: "object" }) },
+          201: { description: "생성됨. 토큰 묶음이 함께 온다", ...jsonContent(itemResponse("#/components/schemas/TokenResponse")) },
           409: errors[409],
           422: errors[422],
         },
@@ -221,7 +244,7 @@ export const openApiDocument = {
     "/auth/token": {
       post: {
         tags: ["auth"],
-        summary: "액세스 토큰 발급 (로그인)",
+        summary: "액세스 토큰 + 리프레시 토큰 발급 (로그인)",
         security: [],
         requestBody: {
           required: true,
@@ -232,26 +255,52 @@ export const openApiDocument = {
           }),
         },
         responses: {
-          200: {
-            description: "발급됨",
-            ...jsonContent({
-              type: "object",
-              properties: {
-                data: {
-                  type: "object",
-                  properties: {
-                    accessToken: { type: "string" },
-                    tokenType: { type: "string", const: "Bearer" },
-                    expiresIn: { type: "integer" },
-                    user: { $ref: "#/components/schemas/User" },
-                  },
-                },
-              },
-            }),
-          },
+          200: { description: "발급됨", ...jsonContent(itemResponse("#/components/schemas/TokenResponse")) },
           401: errors[401],
           422: errors[422],
         },
+      },
+    },
+    "/auth/refresh": {
+      post: {
+        tags: ["auth"],
+        summary: "액세스 토큰 갱신 (리프레시 토큰 회전)",
+        description: [
+          "보낸 refreshToken 은 소비되고 새 refreshToken 이 온다. 반드시 새 값으로 갈아 끼운다.",
+          "이미 소비된 토큰을 보내면 401 `refresh_token_reused` 와 함께 그 로그인 세션의 토큰이 모두 폐기된다.",
+          "클라이언트는 이 code 를 보면 저장된 토큰을 버리고 사용자에게 다시 로그인을 요청해야 한다.",
+        ].join(" "),
+        security: [],
+        requestBody: {
+          required: true,
+          ...jsonContent({
+            type: "object",
+            required: ["refreshToken"],
+            properties: { refreshToken: { type: "string" } },
+          }),
+        },
+        responses: {
+          200: { description: "새 토큰 묶음", ...jsonContent(itemResponse("#/components/schemas/TokenResponse")) },
+          401: { description: "유효하지 않음·만료·폐기 (`unauthorized`) 또는 재사용 감지 (`refresh_token_reused`)", ...jsonContent(errorResponseSchema) },
+          422: errors[422],
+        },
+      },
+    },
+    "/auth/logout": {
+      post: {
+        tags: ["auth"],
+        summary: "리프레시 토큰 폐기 (로그아웃)",
+        description: "토큰이 속한 로그인 세션 전체를 폐기한다. 이미 발급된 액세스 토큰은 남은 시간 동안 유효하다 (stateless). 토큰을 찾지 못해도 204.",
+        security: [],
+        requestBody: {
+          required: true,
+          ...jsonContent({
+            type: "object",
+            required: ["refreshToken"],
+            properties: { refreshToken: { type: "string" } },
+          }),
+        },
+        responses: { 204: { description: "폐기됨" }, 422: errors[422] },
       },
     },
     "/auth/me": {
