@@ -7,6 +7,7 @@
 // 실제 권한 검사는 데이터 가까이(Server Action, 서버 컴포넌트, Route Handler)에서 다시 한다.
 import { NextResponse, type NextRequest } from "next/server";
 import { decrypt } from "@/lib/session";
+import { log } from "@/lib/study-log";
 
 // ---------------------------------------------------------------------------
 // CORS: 다른 도메인의 브라우저 코드가 이 API 를 부를 수 있게 한다.
@@ -39,29 +40,37 @@ export async function proxy(request: NextRequest) {
     // 프리플라이트: 브라우저가 "이 메서드/헤더로 보내도 되나?" 를 먼저 묻는 OPTIONS 요청.
     // 라우트까지 갈 필요 없이 여기서 바로 답한다.
     if (request.method === "OPTIONS") {
+      log.proxy(`${request.method} ${pathname} → 프리플라이트. 라우트까지 가지 않고 204 + CORS 헤더로 즉시 응답`);
       return withCors(new NextResponse(null, { status: 204 }));
     }
     // 실제 요청은 그대로 흘려보내되 응답에 CORS 헤더만 얹는다.
+    log.proxy(`${request.method} ${pathname} → 통과 (CORS 헤더만 부착, 인증은 Route Handler 가 함)`);
     return withCors(NextResponse.next());
   }
 
   // --- 2. 화면 리다이렉트 ---
   const session = await decrypt(request.cookies.get("session")?.value);
   const isLoggedIn = !!session?.userId;
+  log.proxy(
+    `${request.method} ${pathname} → 쿠키만 확인: ${isLoggedIn ? `로그인(userId=${session!.userId})` : "비로그인"} (DB 조회 없음, 보안 경계 아님)`,
+  );
 
   // 로그인이 필요한 경로: 글 수정 페이지
   const needsAuth = /^\/posts\/[^/]+\/edit$/.test(pathname);
   if (needsAuth && !isLoggedIn) {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("next", pathname); // 로그인 후 돌아올 곳 (학습용, 현재는 사용 안 함)
+    log.proxy(`  ↳ 로그인 필요 경로 → ${loginUrl.pathname}${loginUrl.search} 으로 리다이렉트 (페이지 렌더링 안 함)`);
     return NextResponse.redirect(loginUrl);
   }
 
   // 이미 로그인한 사용자가 로그인/가입 페이지로 오면 글 목록으로
   if (isLoggedIn && (pathname === "/login" || pathname === "/signup")) {
+    log.proxy("  ↳ 이미 로그인 상태 → /posts 로 리다이렉트");
     return NextResponse.redirect(new URL("/posts", request.url));
   }
 
+  log.proxy("  ↳ 통과 → 라우트 렌더링으로");
   return NextResponse.next();
 }
 

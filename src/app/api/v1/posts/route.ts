@@ -14,6 +14,7 @@ import { apiRoute } from "@/lib/api/route";
 import { serializePost } from "@/lib/api/serialize";
 import { createPost, listPosts } from "@/lib/posts";
 import { postCreateSchema, postListQuerySchema } from "@/lib/schemas/api";
+import { log } from "@/lib/study-log";
 
 export const GET = apiRoute(async ({ request }) => {
   const { q, limit, offset } = parseQuery(request.nextUrl, postListQuerySchema);
@@ -36,6 +37,7 @@ export const POST = apiRoute(async ({ request, auth }) => {
   // 화면 쪽 "use cache" 결과를 무효화한다.
   // Server Action 에서 쓰던 updateTag() 는 Route Handler 에서 호출할 수 없다(Next.js 16 제약).
   // 대신 revalidateTag(tag, { expire: 0 }) 를 쓴다 — 낡은 내용을 내주지 않고 다음 요청이 바로 새로 만든다.
+  log.invalidate("revalidateTag:expire0", ["posts"]);
   revalidateTag("posts", { expire: 0 });
 
   return ok(serializePost(post, request.nextUrl.origin), 201, {

@@ -10,6 +10,7 @@ import { cacheLife, cacheTag } from "next/cache";
 import { connection } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sqlNow } from "@/lib/sql-now";
+import { log } from "@/lib/study-log";
 import type { Prisma } from "@/generated/prisma/client";
 
 export type Post = {
@@ -71,6 +72,9 @@ export async function getPostsPage(query: string, page: number): Promise<PostsPa
   "use cache";
   cacheLife("minutes");
   cacheTag("posts");
+  // 몸체가 실행될 때만 찍힌다 (= 캐시 MISS). HIT 이면 몸체가 실행되지 않으므로 Prisma 쿼리도 없다.
+  // 단, 개발 모드는 예전 실행의 로그를 "[ Cache ]" 접두어로 다시 보여 주므로 로그 안의 시각으로 구분한다 (study-log.ts 참고).
+  log.cache(`getPostsPage(query="${query}", page=${page}) — 몸체 실행, Prisma 쿼리 2번 (count + findMany)`);
 
   const where = searchWhere(query);
   const total = await prisma.post.count({ where }); // COUNT(*)
@@ -96,6 +100,7 @@ export async function getPost(id: number): Promise<Post | null> {
   "use cache";
   cacheLife("hours");
   cacheTag("posts", `post-${id}`);
+  log.cache(`getPost(${id}) — 몸체 실행, Prisma findUnique. 태그: posts, post-${id}`);
 
   if (!Number.isInteger(id)) return null; // NaN 등은 Prisma 가 거부하므로(SQLite 는 빈 결과) 먼저 걸러 같은 동작을 유지
   const p = await prisma.post.findUnique({ where: { id }, include: withAuthor });
@@ -119,6 +124,7 @@ export async function getPostIds(): Promise<number[]> {
  */
 export async function getOtherPosts(excludeId: number): Promise<Post[]> {
   await connection();
+  log.render(`getOtherPosts(excludeId=${excludeId}) — connection() 통과 → 요청 시점 실행 (캐시 없음). 1.5초 지연 시작`);
   await new Promise((resolve) => setTimeout(resolve, 1500));
   const rows = await prisma.post.findMany({
     where: { id: { not: excludeId } }, // != 는 not

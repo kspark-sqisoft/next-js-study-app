@@ -19,6 +19,7 @@ import { createPost, deletePost, getPost, updatePost } from "@/lib/posts";
 import { deleteImage, saveImage } from "@/lib/uploads";
 import { commentSchema } from "@/lib/schemas/comment";
 import { postSchema, type PostFieldErrors } from "@/lib/schemas/post";
+import { log } from "@/lib/study-log";
 
 export type PostFormState = {
   errors?: PostFieldErrors & { form?: string[]; image?: string[] };
@@ -42,11 +43,13 @@ function parsePostForm(formData: FormData) {
 
 // 글 작성. 로그인 필요. 성공하면 목록 캐시를 즉시 만료시키고 상세 페이지로 이동한다.
 export async function createPostAction(_prev: PostFormState, formData: FormData): Promise<PostFormState> {
+  log.action("createPostAction 시작 — 브라우저의 <form> 제출이 POST 요청으로 이 함수를 실행했다");
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
   const { raw, result } = parsePostForm(formData);
   if (!result.success) {
+    log.action("  ↳ 검증 실패 → 에러를 반환하고 종료 (캐시 무효화도 리다이렉트도 없음)", z.flattenError(result.error).fieldErrors);
     return { errors: z.flattenError(result.error).fieldErrors, fields: raw };
   }
 
@@ -55,20 +58,27 @@ export async function createPostAction(_prev: PostFormState, formData: FormData)
   if (saved && "error" in saved) return { errors: { image: [saved.error] }, fields: raw };
 
   const post = await createPost(result.data.title, result.data.content, user.id, saved?.name ?? null);
+  log.action(`  ↳ 글 #${post.id} 저장 (작성자 ${user.name}${saved ? `, 이미지 ${saved.name}` : ""})`);
 
   // updateTag: 다음 요청이 "새 데이터를 기다렸다가" 응답한다 (read-your-own-writes).
+  log.invalidate("updateTag", ["posts"]);
   updateTag("posts");
+  log.action(`  ↳ redirect(/posts/${post.id}) — 예외를 던져 액션 종료. 브라우저는 새 위치의 RSC 페이로드를 받는다`);
   redirect(`/posts/${post.id}`); // redirect 는 예외를 던지므로 이 아래는 실행되지 않는다
 }
 
 // 글 수정. 작성자 본인만. id 는 bind 로 미리 묶어서 폼에 연결한다.
 export async function updatePostAction(id: number, _prev: PostFormState, formData: FormData): Promise<PostFormState> {
+  log.action(`updatePostAction(id=${id}) 시작 — id 는 bind 로 서버에서 미리 묶인 값`);
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
   const post = await getPost(id);
   if (!post) return { errors: { form: ["존재하지 않는 글입니다."] } };
-  if (post.authorId !== user.id) return { errors: { form: ["본인이 작성한 글만 수정할 수 있습니다."] } };
+  if (post.authorId !== user.id) {
+    log.action(`  ↳ 권한 없음: 글 작성자 #${post.authorId} ≠ 요청자 #${user.id}. 화면에서 버튼을 숨겨도 서버에서 다시 검사한다`);
+    return { errors: { form: ["본인이 작성한 글만 수정할 수 있습니다."] } };
+  }
 
   const { raw, result } = parsePostForm(formData);
   if (!result.success) {
@@ -88,13 +98,18 @@ export async function updatePostAction(id: number, _prev: PostFormState, formDat
   }
 
   await updatePost(id, result.data.title, result.data.content, imagePath);
+  log.action(`  ↳ 글 #${id} 수정 저장`);
+  // 목록(posts)과 이 글(post-N) 두 태그를 모두 지운다. 목록에도 제목이 보이기 때문이다.
+  log.invalidate("updateTag", ["posts", `post-${id}`]);
   updateTag("posts");
   updateTag(`post-${id}`);
+  log.action(`  ↳ redirect(/posts/${id})`);
   redirect(`/posts/${id}`);
 }
 
 // 글 삭제. 작성자 본인만. 목록 캐시와 해당 글 캐시를 모두 무효화한 뒤 목록으로 이동.
 export async function deletePostAction(id: number) {
+  log.action(`deletePostAction(id=${id}) 시작 — 클라이언트 컴포넌트가 함수처럼 호출했지만 실제로는 POST 요청`);
   const user = await getCurrentUser();
   if (!user) return { error: "로그인이 필요합니다." };
 
@@ -104,8 +119,11 @@ export async function deletePostAction(id: number) {
 
   await deletePost(id); // comments 는 ON DELETE CASCADE 로 함께 삭제
   await deleteImage(post.imagePath); // 첨부 이미지 파일도 정리
+  log.action(`  ↳ 글 #${id} 삭제 (댓글은 CASCADE${post.imagePath ? `, 이미지 ${post.imagePath} 파일 삭제` : ""})`);
+  log.invalidate("updateTag", ["posts", `post-${id}`]);
   updateTag("posts");
   updateTag(`post-${id}`);
+  log.action("  ↳ redirect(/posts)");
   redirect("/posts");
 }
 
@@ -122,6 +140,7 @@ export async function addCommentAction(
   _prev: CommentFormState,
   formData: FormData,
 ): Promise<CommentFormState> {
+  log.action(`addCommentAction(postId=${postId}, parentId=${parentId}) 시작`);
   const user = await getCurrentUser();
   if (!user) return { error: "댓글을 쓰려면 로그인하세요." };
 
@@ -140,12 +159,16 @@ export async function addCommentAction(
   }
 
   await createComment(postId, user.id, result.data.content, parentId);
+  log.action(`  ↳ ${parentId === null ? "댓글" : "답글"} 저장. 글 캐시(post-${postId})는 건드리지 않고 댓글 태그만 지운다`);
+  log.invalidate("updateTag", [commentsTag(postId)]);
   updateTag(commentsTag(postId));
+  log.action("  ↳ { ok: true } 반환. redirect 가 없으므로 현재 페이지가 새 RSC 페이로드로 갱신된다");
   return { ok: true };
 }
 
 // 댓글 삭제. 작성자 본인만. 최상위 댓글을 지우면 답글도 함께 지워진다(CASCADE).
 export async function deleteCommentAction(commentId: number) {
+  log.action(`deleteCommentAction(commentId=${commentId}) 시작`);
   const user = await getCurrentUser();
   if (!user) return { error: "로그인이 필요합니다." };
 
@@ -154,6 +177,8 @@ export async function deleteCommentAction(commentId: number) {
   if (comment.authorId !== user.id) return { error: "본인이 쓴 댓글만 삭제할 수 있습니다." };
 
   await deleteComment(commentId);
+  log.action(`  ↳ 댓글 #${commentId} 삭제 (답글은 CASCADE)`);
+  log.invalidate("updateTag", [commentsTag(comment.postId)]);
   updateTag(commentsTag(comment.postId));
   return { ok: true };
 }
@@ -164,16 +189,22 @@ export async function deleteCommentAction(commentId: number) {
 
 // 1) updateTag: 즉시 만료. 다음 요청은 캐시를 새로 만들 때까지 기다린다.
 export async function refreshPostsNowAction() {
+  log.action("refreshPostsNowAction — 데이터는 그대로, 캐시만 지운다. 다음 [render] 뒤에 [cache] MISS 가 바로 찍히는지 보자");
+  log.invalidate("updateTag", ["posts"]);
   updateTag("posts");
 }
 
 // 2) revalidateTag(tag, "max"): stale-while-revalidate.
 //    다음 요청은 기존 캐시를 그대로 주고, 백그라운드에서 새로 만든다. 그 다음 요청부터 새 값이 보인다.
 export async function refreshPostsInBackgroundAction() {
+  log.action("refreshPostsInBackgroundAction — 다음 요청은 [cache] MISS 없이 옛 값을 받고, 백그라운드에서 MISS 로그가 뒤늦게 찍힌다");
+  log.invalidate("revalidateTag", ["posts"]);
   revalidateTag("posts", "max");
 }
 
 // 외부 API(GitHub 릴리스) 캐시 갱신. 외부 fetch 도 태그로 무효화하는 방법은 DB 조회와 같다.
 export async function refreshReleasesAction() {
+  log.action("refreshReleasesAction — 외부 fetch 결과도 DB 조회와 똑같이 태그로 지운다");
+  log.invalidate("updateTag", [RELEASES_TAG]);
   updateTag(RELEASES_TAG);
 }

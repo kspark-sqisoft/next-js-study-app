@@ -25,7 +25,10 @@ const url =
 
 function createPrismaClient() {
   const adapter = new PrismaBetterSqlite3({ url }); // 실제 SQLite 드라이버
-  return new PrismaClient({ adapter }); // 쿼리 빌더 + 타입. 첫 쿼리 때 연결이 열린다 (lazy)
+  // 학습용: 개발 모드에서 Prisma 가 실제로 보내는 SQL 을 터미널에 찍는다 ("prisma:query SELECT ..." 형태).
+  // 위쪽의 [cache] MISS 로그 뒤에 이 SQL 이 따라오는지, HIT 일 때는 SQL 이 없는지를 비교해 보자.
+  const log = process.env.NODE_ENV === "development" ? (["query"] as const) : [];
+  return new PrismaClient({ adapter, log: [...log] }); // 쿼리 빌더 + 타입. 첫 쿼리 때 연결이 열린다 (lazy)
 }
 
 const globalForPrisma = globalThis as unknown as { __prisma?: PrismaClient };

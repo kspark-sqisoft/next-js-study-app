@@ -13,6 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { getCurrentUser } from "@/lib/dal";
 import { getPostsPage, PAGE_SIZE } from "@/lib/posts";
 import { imageUrl } from "@/lib/uploads";
+import { log } from "@/lib/study-log";
 import { CacheControls } from "./cache-controls";
 import { NewPostForm } from "./new-post-form";
 import { PostSearchForm } from "./post-search-form";
@@ -58,7 +59,10 @@ async function PostList({ searchParams }: Pick<PageProps<"/posts">, "searchParam
   const requestedPage = Number.parseInt(first(sp.page), 10);
   const page = Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1;
 
+  // 아래 [render] 뒤에 오는 [cache] 줄의 "실행 시각" 이 이 [render] 시각보다 과거면 캐시 HIT (개발 모드 리플레이), 같으면 MISS
+  log.render(`PostList → getPostsPage(query="${query}", page=${page}) 호출 (Suspense 안, searchParams 읽은 뒤)`);
   const result = await getPostsPage(query, page);
+  log.render(`PostList ← ${result.total}건, cachedAt=${result.cachedAt} (이 시각이 그대로면 캐시된 값)`);
   const from = result.total === 0 ? 0 : (result.page - 1) * PAGE_SIZE + 1;
   const to = Math.min(result.page * PAGE_SIZE, result.total);
 
@@ -130,6 +134,7 @@ async function PostList({ searchParams }: Pick<PageProps<"/posts">, "searchParam
 
 async function NewPostSection() {
   const user = await getCurrentUser();
+  log.render(`NewPostSection ← ${user ? `로그인 ${user.name}` : "비로그인"} (쿠키를 읽으므로 정적 셸 밖, Suspense 안)`);
   if (!user) {
     return (
       <p className="text-sm text-muted-foreground">

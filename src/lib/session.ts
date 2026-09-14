@@ -4,6 +4,7 @@
 import "server-only";
 import { SignJWT, jwtVerify, type JWTPayload } from "jose";
 import { cookies } from "next/headers";
+import { log } from "@/lib/study-log";
 
 const COOKIE_NAME = "session";
 const SESSION_DAYS = 7;
@@ -45,6 +46,7 @@ export async function decrypt(token: string | undefined): Promise<SessionPayload
 export async function createSession(userId: number): Promise<void> {
   const expiresAt = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000);
   const token = await encrypt({ userId });
+  log.session(`createSession(userId=${userId}) → JWT 서명 → httpOnly 쿠키 "${COOKIE_NAME}" 설정 (${SESSION_DAYS}일)`);
   const cookieStore = await cookies();
   cookieStore.set(COOKIE_NAME, token, {
     httpOnly: true, // JS(document.cookie)로 읽을 수 없다 → XSS 로 탈취 방지
@@ -57,6 +59,7 @@ export async function createSession(userId: number): Promise<void> {
 
 /** 로그아웃. 쿠키를 지운다. */
 export async function deleteSession(): Promise<void> {
+  log.session(`deleteSession() → 쿠키 "${COOKIE_NAME}" 삭제`);
   const cookieStore = await cookies();
   cookieStore.delete(COOKIE_NAME);
 }
@@ -64,6 +67,8 @@ export async function deleteSession(): Promise<void> {
 /** 현재 요청의 쿠키에서 userId 를 꺼낸다. 로그인 안 했으면 null */
 export async function getSessionUserId(): Promise<number | null> {
   const cookieStore = await cookies();
-  const session = await decrypt(cookieStore.get(COOKIE_NAME)?.value);
+  const token = cookieStore.get(COOKIE_NAME)?.value;
+  const session = await decrypt(token);
+  if (token && !session) log.session("getSessionUserId() → 쿠키는 있지만 검증 실패 (서명 불일치/만료) → 비로그인 취급");
   return session?.userId ?? null;
 }

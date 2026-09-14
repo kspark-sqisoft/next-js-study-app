@@ -9,12 +9,14 @@ import { getPost, getPostIds } from "@/lib/posts";
 import { imageUrl } from "@/lib/uploads";
 import { updatePostAction } from "../../actions";
 import { PostForm } from "../../post-form";
+import { log } from "@/lib/study-log";
 
 export const metadata: Metadata = { title: "글 수정 | Next.js Study App" };
 
 // [id]/page.tsx 와 같은 규칙. 이 세그먼트도 동적 라우트라 최소 1개를 돌려줘야 한다.
 export async function generateStaticParams() {
   const ids = (await getPostIds()).slice(0, 2);
+  log.build(`generateStaticParams(/posts/[id]/edit) → [${ids.join(", ")}]`);
   return ids.length > 0 ? ids.map((id) => ({ id: String(id) })) : [{ id: "0" }];
 }
 
@@ -32,9 +34,13 @@ async function EditPost({ params }: Pick<PageProps<"/posts/[id]/edit">, "params"
   const numericId = Number(id);
   if (!Number.isInteger(numericId)) notFound();
 
+  log.render(`EditPost(${numericId}) → requireUser 통과 (${user.name}), getPost 호출. proxy 가 먼저 걸렀지만 여기서 다시 검사`);
   const post = await getPost(numericId);
   if (!post) notFound();
-  if (post.authorId !== user.id) redirect(`/posts/${post.id}`); // 남의 글이면 상세로 돌려보낸다
+  if (post.authorId !== user.id) {
+    log.render(`EditPost ← 남의 글 (작성자 #${post.authorId}) → redirect(/posts/${post.id})`);
+    redirect(`/posts/${post.id}`); // 남의 글이면 상세로 돌려보낸다
+  }
 
   // bind: 첫 인자(id)를 고정한 새 함수를 만든다. 폼은 (prev, formData) 만 넘기면 된다.
   const action = updatePostAction.bind(null, post.id);

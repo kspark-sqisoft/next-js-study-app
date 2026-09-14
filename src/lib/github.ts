@@ -6,6 +6,7 @@
 // 화면에서는 가장 가까운 error.tsx 가 잡는다.
 import "server-only";
 import { cacheLife, cacheTag } from "next/cache";
+import { log } from "@/lib/study-log";
 
 export type Release = {
   id: number;
@@ -31,6 +32,7 @@ export async function getNextReleases(): Promise<{ releases: Release[]; fetchedA
   "use cache";
   cacheLife("hours"); // 릴리스는 자주 안 바뀌니 1시간. 비인증 GitHub API 한도(시간당 60회)도 아낀다
   cacheTag(RELEASES_TAG);
+  log.cache(`getNextReleases() — 몸체 실행, GitHub API 실제 호출. 태그: ${RELEASES_TAG}`);
 
   const res = await fetch("https://api.github.com/repos/vercel/next.js/releases?per_page=8", {
     headers: {

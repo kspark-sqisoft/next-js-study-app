@@ -19,6 +19,7 @@ import { AddTodoForm } from "./add-todo-form";
 import { BulkActionBar } from "./bulk-action-bar";
 import { ClearCompletedButton } from "./clear-completed-button";
 import { TodoItem } from "./todo-item";
+import { log } from "@/lib/study-log";
 
 // <head> 의 <title> 등 메타데이터
 export const metadata: Metadata = {
@@ -27,7 +28,9 @@ export const metadata: Metadata = {
 
 // async 컴포넌트: 서버 컴포넌트는 데이터를 await 로 바로 가져올 수 있다.
 export default async function TodosPage() {
+  log.render("TodosPage → getTodos() 호출");
   const todos = await getTodos(); // 매 요청마다 DB 조회 (SSR)
+  log.render(`TodosPage ← ${todos.length}건. "use cache" 가 아니라 revalidatePath 로 갱신되는 페이지`);
   const completedCount = todos.filter((t) => t.completed).length;
   const remainingCount = todos.length - completedCount;
 

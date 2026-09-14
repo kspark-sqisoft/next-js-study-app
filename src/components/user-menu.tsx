@@ -5,9 +5,11 @@ import Link from "next/link";
 import { logoutAction } from "@/app/(auth)/actions";
 import { Button } from "@/components/ui/button";
 import { getCurrentUser } from "@/lib/dal";
+import { log } from "@/lib/study-log";
 
 export async function UserMenu() {
   const user = await getCurrentUser();
+  log.render(`UserMenu ← ${user ? user.name : "비로그인"} (레이아웃 안이지만 쿠키를 읽으므로 Suspense 안에서 요청마다 실행)`);
 
   if (!user) {
     return (

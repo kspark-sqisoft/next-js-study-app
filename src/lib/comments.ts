@@ -11,6 +11,7 @@ import "server-only";
 import { cacheLife, cacheTag } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client"; // 생성된 타입 네임스페이스 (WhereInput, Include 등)
+import { log } from "@/lib/study-log";
 
 // 앱에서 쓰는 댓글 타입. main 과 동일.
 export type Comment = {
@@ -59,6 +60,7 @@ export async function getCommentThreads(postId: number): Promise<CommentThread[]
   "use cache";
   cacheLife("hours");
   cacheTag(commentsTag(postId));
+  log.cache(`getCommentThreads(postId=${postId}) — 몸체 실행, Prisma findMany. 태그: ${commentsTag(postId)}`);
 
   const rows = await prisma.comment.findMany({ where: { postId }, include: withAuthor, orderBy: { id: "asc" } });
 

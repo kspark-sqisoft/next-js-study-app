@@ -3,6 +3,7 @@
 // request 의 쿼리스트링을 읽으므로 항상 요청 시점에 실행된다 (캐시되지 않음).
 import { type NextRequest } from "next/server";
 import { countPosts, getPostsByCursor, searchPosts, type Post } from "@/lib/posts";
+import { log } from "@/lib/study-log";
 
 const MAX_LIMIT = 20;
 
@@ -16,6 +17,7 @@ export async function GET(request: NextRequest) {
   const sp = request.nextUrl.searchParams;
   const q = sp.get("q")?.trim() ?? "";
   const limitParam = sp.get("limit");
+  log.api(`GET /api/posts${request.nextUrl.search} → ${limitParam !== null ? "커서" : "검색"} 모드. searchParams 를 읽으므로 캐시 없음, 500ms 인위 지연`);
 
   await sleep(500); // 네트워크 지연을 흉내 내어 로딩 상태를 눈으로 볼 수 있게 한다 (학습용)
 

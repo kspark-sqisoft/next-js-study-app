@@ -13,6 +13,7 @@
 import "server-only";
 import { connection } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { log } from "@/lib/study-log";
 
 // 앱에서 사용하는 Todo 타입 (boolean). main 과 동일.
 export type Todo = {
@@ -40,6 +41,7 @@ function toTodo(t: TodoRecord): Todo {
  */
 export async function getTodos(): Promise<Todo[]> {
   await connection();
+  log.render("getTodos() — connection() 통과 → 요청 시점 실행 (SSR). 캐시 없이 매번 Prisma 쿼리");
   // orderBy 에 배열을 주면 여러 기준으로 정렬한다: 미완료 먼저, 그 안에서 최신순
   const rows = await prisma.todo.findMany({ orderBy: [{ completed: "asc" }, { id: "desc" }] });
   return rows.map(toTodo);

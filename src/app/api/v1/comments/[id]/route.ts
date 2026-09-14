@@ -6,6 +6,7 @@ import { requireAuth } from "@/lib/api/auth";
 import { forbidden, noContent, notFound, parseIdParam } from "@/lib/api/http";
 import { apiRoute } from "@/lib/api/route";
 import { commentsTag, deleteComment, findComment } from "@/lib/comments";
+import { log } from "@/lib/study-log";
 
 export const DELETE = apiRoute<{ id: string }>(async ({ params, auth }) => {
   const { user } = requireAuth(auth);
@@ -16,6 +17,7 @@ export const DELETE = apiRoute<{ id: string }>(async ({ params, auth }) => {
   if (comment.authorId !== user.id) throw forbidden("본인이 쓴 댓글만 삭제할 수 있습니다.");
 
   await deleteComment(id);
+  log.invalidate("revalidateTag:expire0", [commentsTag(comment.postId)]);
   revalidateTag(commentsTag(comment.postId), { expire: 0 });
 
   return noContent();

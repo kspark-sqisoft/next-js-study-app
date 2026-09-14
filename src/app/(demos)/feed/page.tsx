@@ -10,11 +10,14 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { getPostsPage, PAGE_SIZE } from "@/lib/posts";
 import { PostFeed, type FeedItem } from "./post-feed";
+import { log } from "@/lib/study-log";
 
 export const metadata: Metadata = { title: "무한 스크롤 | Next.js Study App" };
 
 export default async function FeedPage() {
+  log.render('FeedPage → getPostsPage("", 1) 호출. /posts 1페이지와 같은 캐시 키라 서로 캐시를 공유한다');
   const first = await getPostsPage("", 1); // "use cache" 된 첫 페이지 (posts 태그로 무효화됨)
+  log.render(`FeedPage ← ${first.posts.length}건, cachedAt=${first.cachedAt}. 다음 페이지부터는 브라우저가 /api/posts 를 직접 호출`);
   const initialPosts = first.posts.map(({ id, title, authorName, imagePath, createdAt }) => ({
     id, title, authorName, imagePath, createdAt,
   }));
