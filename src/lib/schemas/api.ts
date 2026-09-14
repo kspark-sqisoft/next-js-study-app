@@ -82,6 +82,11 @@ export const todoUpdateSchema = z
 export const registerSchema = signupSchema; // 화면 회원가입과 같은 규칙
 export const tokenSchema = loginSchema; // 이메일 + 비밀번호
 
+/** POST /auth/refresh, POST /auth/logout 본문. 리프레시 토큰은 헤더가 아니라 본문으로만 받는다 (auth.ts 의 authenticate 참고). */
+export const refreshTokenSchema = z.object({
+  refreshToken: z.string().trim().min(1, "refreshToken 을 보내세요."),
+});
+
 export const apiKeyCreateSchema = z.object({
   name: z.string().trim().min(1, "키 이름을 입력하세요.").max(50, "키 이름은 50자 이하로 입력하세요."),
 });

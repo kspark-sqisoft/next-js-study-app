@@ -26,8 +26,37 @@ test("진입점과 OpenAPI 명세는 인증 없이 열린다", async ({ request 
   expect(doc.openapi).toBe("3.1.0");
   // 명세에 실제 엔드포인트가 모두 들어 있는지
   expect(Object.keys(doc.paths)).toEqual(
-    expect.arrayContaining(["/posts", "/posts/{id}", "/todos", "/auth/token", "/auth/keys"]),
+    expect.arrayContaining(["/posts", "/posts/{id}", "/todos", "/auth/token", "/auth/refresh", "/auth/logout", "/auth/keys"]),
   );
+});
+
+test("리프레시 토큰: 회전 → 옛 토큰 재사용 시 세션 전체 폐기 → 로그아웃", async ({ request }) => {
+  const login = await request.post(`${V1}/auth/token`, { data: DEMO });
+  expect(login.status()).toBe(200);
+  const first = (await login.json()).data;
+  expect(first.refreshToken.startsWith("rt_")).toBe(true);
+
+  // 회전: 새 액세스 토큰 + 새 리프레시 토큰
+  const rotated = await request.post(`${V1}/auth/refresh`, { data: { refreshToken: first.refreshToken } });
+  expect(rotated.status()).toBe(200);
+  const second = (await rotated.json()).data;
+  expect(second.refreshToken).not.toBe(first.refreshToken);
+  expect((await request.get(`${V1}/auth/me`, {
+    headers: { Authorization: `Bearer ${second.accessToken}` },
+  })).status()).toBe(200);
+
+  // 옛 토큰 재사용 → 전용 코드, 그리고 새 토큰까지 함께 죽는다
+  const reused = await request.post(`${V1}/auth/refresh`, { data: { refreshToken: first.refreshToken } });
+  expect(reused.status()).toBe(401);
+  expect((await reused.json()).error.code).toBe("refresh_token_reused");
+  const collateral = await request.post(`${V1}/auth/refresh`, { data: { refreshToken: second.refreshToken } });
+  expect(collateral.status()).toBe(401);
+  expect((await collateral.json()).error.code).toBe("unauthorized");
+
+  // 다시 로그인 → 로그아웃 → 갱신 불가
+  const again = (await (await request.post(`${V1}/auth/token`, { data: DEMO })).json()).data;
+  expect((await request.post(`${V1}/auth/logout`, { data: { refreshToken: again.refreshToken } })).status()).toBe(204);
+  expect((await request.post(`${V1}/auth/refresh`, { data: { refreshToken: again.refreshToken } })).status()).toBe(401);
 });
 
 test("CORS: 프리플라이트에 응답하고 레이트 리밋 헤더를 노출한다", async ({ request }) => {

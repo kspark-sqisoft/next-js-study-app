@@ -103,8 +103,8 @@ function clearTable(table: string) {
 }
 
 if (reset) {
-  // 외래키 순서를 고려해 자식 테이블부터 비운다
-  for (const t of ["comments", "posts", "todos", "users"]) clearTable(t);
+  // 외래키 순서를 고려해 자식 테이블부터 비운다 (refresh_tokens, api_keys 는 users 를 참조한다)
+  for (const t of ["refresh_tokens", "api_keys", "comments", "posts", "todos", "users"]) clearTable(t);
   console.log("모든 테이블을 비웠습니다.");
 }
 

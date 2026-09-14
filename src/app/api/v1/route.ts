@@ -11,6 +11,7 @@ export function GET() {
     authentication: {
       scheme: "Authorization: Bearer <토큰>",
       accessToken: "POST /api/v1/auth/token (이메일 + 비밀번호). 1시간 유효",
+      refreshToken: "로그인 응답에 함께 옴 (rt_ 로 시작, 30일). POST /api/v1/auth/refresh 본문으로 보내 새 쌍을 받는다. 한 번 쓰면 소비(회전), 재사용 시 세션 전체 폐기",
       apiKey: "POST /api/v1/auth/keys (액세스 토큰 필요). sk_ 로 시작, 만료 없음, 폐기 가능",
       note: "세션 쿠키는 받지 않는다. 읽기는 공개, 쓰기는 인증 필요.",
     },
@@ -19,6 +20,8 @@ export function GET() {
       auth: [
         "POST   /api/v1/auth/register",
         "POST   /api/v1/auth/token",
+        "POST   /api/v1/auth/refresh",
+        "POST   /api/v1/auth/logout",
         "GET    /api/v1/auth/me",
         "GET    /api/v1/auth/keys",
         "POST   /api/v1/auth/keys",

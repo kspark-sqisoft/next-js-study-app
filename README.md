@@ -456,7 +456,7 @@ Next.js 16 에서는 ISR 을 별도 설정이 아니라 `"use cache"` + `cacheLi
 | 25 | `template.tsx` 와 layout 의 차이 | `src/app/(demos)/template.tsx` |
 | 26 | 리다이렉트: `redirects` 설정, `redirect()`, `permanentRedirect()` | `next.config.ts`, `src/app/p/[id]/page.tsx` |
 | 27 | 공개 API 설계: 버전 경로, 응답 봉투, 에러 코드 | `src/lib/api/http.ts`, `src/app/api/v1/`, Part 5 |
-| 28 | Bearer 인증: 액세스 토큰(JWT) vs API 키(해시 저장) | `src/lib/api/auth.ts`, `src/lib/api-keys.ts` |
+| 28 | Bearer 인증: 액세스 토큰(JWT) vs API 키(해시 저장), 리프레시 토큰 회전·재사용 감지 | `src/lib/api/auth.ts`, `src/lib/api-keys.ts`, `src/lib/refresh-tokens.ts` |
 | 29 | 레이트 리밋과 CORS | `src/lib/api/rate-limit.ts`(5-6), `src/proxy.ts`(5-10) |
 | 30 | Route Handler 의 캐시 무효화 (`updateTag` 를 못 쓰는 이유) | `src/app/api/v1/posts/route.ts` |
 | 31 | OpenAPI 명세로 API 문서화 | `src/lib/api/openapi.ts`, `/api/v1/openapi.json` |
@@ -1048,16 +1048,19 @@ curl -s $B/api/v1 | jq
 
 `endpoints` 에 auth, posts, comments, todos 가, `rateLimit` 에 분당 한도가 보인다.
 
-#### 2. 로그인해서 액세스 토큰 받기 (시드 계정, 1시간 유효)
+#### 2. 로그인해서 액세스 토큰과 리프레시 토큰 받기 (시드 계정)
 
 ```bash
-TOKEN=$(curl -s -X POST $B/api/v1/auth/token \
+LOGIN=$(curl -s -X POST $B/api/v1/auth/token \
   -H 'Content-Type: application/json' \
-  -d '{"email":"demo@example.com","password":"password123"}' | jq -r .data.accessToken)
-echo $TOKEN
+  -d '{"email":"demo@example.com","password":"password123"}')
+echo $LOGIN | jq
+TOKEN=$(echo $LOGIN | jq -r .data.accessToken)   # 액세스 토큰 (JWT, 1시간). Authorization 헤더에 넣는다
+RT=$(echo $LOGIN | jq -r .data.refreshToken)     # 리프레시 토큰 (rt_..., 30일). 4번 단계에서 쓴다
 ```
 
-긴 JWT 문자열이 출력되면 성공. 비어 있으면 서버 주소나 시드(`npm run db:seed`)를 확인한다.
+`accessToken` 에 긴 JWT 문자열이, `refreshToken` 에 `rt_` 로 시작하는 문자열이 보이면 성공.
+비어 있으면 서버 주소나 시드(`npm run db:seed`)를 확인한다.
 
 #### 3. 토큰이 잘 전달되는지 확인
 
@@ -1067,7 +1070,45 @@ curl -s $B/api/v1/auth/me -H "Authorization: Bearer $TOKEN" | jq
 
 `data.user` 에 데모 계정이, `via` 에 `access_token` 이 나온다.
 
-#### 4. 글 목록 읽기 (읽기는 토큰 없이 된다)
+#### 4. 액세스 토큰 갱신: 리프레시 토큰 회전과 재사용 감지
+
+액세스 토큰은 1시간이면 만료된다. 비밀번호를 다시 묻는 대신 리프레시 토큰으로 새 쌍을 받는다.
+
+```bash
+NEXT=$(curl -s -X POST $B/api/v1/auth/refresh \
+  -H 'Content-Type: application/json' -d "{\"refreshToken\":\"$RT\"}")
+echo $NEXT | jq '.data | {refreshToken, refreshExpiresIn}'
+TOKEN=$(echo $NEXT | jq -r .data.accessToken)    # 새 액세스 토큰으로 갈아 끼운다
+RT2=$(echo $NEXT | jq -r .data.refreshToken)     # 새 리프레시 토큰. 옛 $RT 는 이 순간 "소비" 됐다
+```
+
+`refreshToken` 이 바뀌었다(회전). 이제 **옛 토큰을 일부러 다시 보내 보자** — 탈취범이 옛 토큰을 들고 있는 상황이다.
+
+```bash
+curl -s -X POST $B/api/v1/auth/refresh \
+  -H 'Content-Type: application/json' -d "{\"refreshToken\":\"$RT\"}" | jq    # refresh_token_reused
+curl -s -X POST $B/api/v1/auth/refresh \
+  -H 'Content-Type: application/json' -d "{\"refreshToken\":\"$RT2\"}" | jq   # unauthorized — 새 토큰까지 죽었다
+```
+
+소비된 토큰이 다시 오면 서버는 "누가 먼저 썼는지 알 수 없다" 고 보고 그 로그인 세션(가족)의 토큰을 **전부** 폐기한다.
+정상 사용자도 다시 로그인해야 하지만 탈취범도 함께 쫓겨난다. `npm run dev` 터미널의 `[api]` 로그에 `재사용 감지!` 가 찍힌다.
+액세스 토큰(`$TOKEN`)은 stateless 라 남은 시간 동안 그대로 유효하므로 다음 단계는 이어서 진행할 수 있다.
+
+마지막으로 로그아웃. 다시 로그인해 새 리프레시 토큰을 받고, 그걸 폐기해 보자.
+
+```bash
+RT=$(curl -s -X POST $B/api/v1/auth/token -H 'Content-Type: application/json' \
+  -d '{"email":"demo@example.com","password":"password123"}' | jq -r .data.refreshToken)
+curl -s -o /dev/null -w "%{http_code}\n" -X POST $B/api/v1/auth/logout \
+  -H 'Content-Type: application/json' -d "{\"refreshToken\":\"$RT\"}"         # 204
+curl -s -X POST $B/api/v1/auth/refresh \
+  -H 'Content-Type: application/json' -d "{\"refreshToken\":\"$RT\"}" | jq    # unauthorized
+```
+
+원리는 5-4 의 "리프레시 토큰" 항목에서 설명한다.
+
+#### 5. 글 목록 읽기 (읽기는 토큰 없이 된다)
 
 ```bash
 curl -s "$B/api/v1/posts?limit=2" | jq
@@ -1076,7 +1117,7 @@ curl -s "$B/api/v1/posts?q=스트리밍" | jq '.data[] | {id, title}'
 
 `data` 배열과 `pagination`(total, limit, offset, hasMore) 이 함께 온다. `author` 는 `{ id, name }` 객체.
 
-#### 5. 글 작성 (토큰 필요)
+#### 6. 글 작성 (토큰 필요)
 
 ```bash
 NEW=$(curl -s -X POST $B/api/v1/posts \
@@ -1088,7 +1129,7 @@ ID=$(echo $NEW | jq -r .data.id)   # 이후 단계에서 쓴다
 
 브라우저에서 `/posts` 를 새로고침하면 방금 쓴 글이 보인다 (`updateTag` 로 목록 캐시가 갱신됐기 때문).
 
-#### 6. 실패 응답 모양 보기
+#### 7. 실패 응답 모양 보기
 
 ```bash
 # 토큰 없이 → 401 unauthorized
@@ -1100,7 +1141,7 @@ curl -s -X POST $B/api/v1/posts -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' -d '{"title":""}' | jq
 ```
 
-#### 7. 글 수정 (PATCH, 바꿀 필드만 보낸다)
+#### 8. 글 수정 (PATCH, 바꿀 필드만 보낸다)
 
 ```bash
 curl -s -X PATCH $B/api/v1/posts/$ID \
@@ -1108,7 +1149,7 @@ curl -s -X PATCH $B/api/v1/posts/$ID \
   -d '{"title":"API 로 수정한 글"}' | jq
 ```
 
-#### 8. 권한 검사 확인 (남의 글은 403)
+#### 9. 권한 검사 확인 (남의 글은 403)
 
 ```bash
 GT=$(curl -s -X POST $B/api/v1/auth/token -H 'Content-Type: application/json' \
@@ -1118,7 +1159,7 @@ curl -s -X PATCH $B/api/v1/posts/$ID -H "Authorization: Bearer $GT" \
   -H 'Content-Type: application/json' -d '{"title":"남의 글"}' | jq   # forbidden
 ```
 
-#### 9. 댓글 달기와 읽기
+#### 10. 댓글 달기와 읽기
 
 ```bash
 # 게스트 토큰으로 댓글 (댓글은 로그인만 하면 누구나)
@@ -1135,7 +1176,7 @@ curl -s -X POST $B/api/v1/posts/$ID/comments \
 curl -s $B/api/v1/posts/$ID/comments | jq
 ```
 
-#### 10. 오래 쓸 API 키 발급 (봇·서버 간 호출용, 만료 없음)
+#### 11. 오래 쓸 API 키 발급 (봇·서버 간 호출용, 만료 없음)
 
 ```bash
 KEY=$(curl -s -X POST $B/api/v1/auth/keys \
@@ -1150,7 +1191,7 @@ curl -s $B/api/v1/auth/me -H "Authorization: Bearer $KEY" | jq      # via 가 ap
 curl -s $B/api/v1/auth/keys -H "Authorization: Bearer $TOKEN" | jq  # 내 키 목록 (prefix 만 보인다)
 ```
 
-#### 11. API 키 폐기 (즉시 401)
+#### 12. API 키 폐기 (즉시 401)
 
 ```bash
 KID=$(curl -s $B/api/v1/auth/keys -H "Authorization: Bearer $TOKEN" | jq -r '.data[0].id')
@@ -1159,7 +1200,7 @@ curl -s -o /dev/null -w "%{http_code}\n" -X DELETE $B/api/v1/auth/keys/$KID \
 curl -s $B/api/v1/auth/me -H "Authorization: Bearer $KEY" | jq      # unauthorized
 ```
 
-#### 12. 글 삭제 (작성자만, 댓글도 CASCADE 로 함께 삭제)
+#### 13. 글 삭제 (작성자만, 댓글도 CASCADE 로 함께 삭제)
 
 ```bash
 curl -s -o /dev/null -w "%{http_code}\n" -X DELETE $B/api/v1/posts/$ID \
@@ -1250,7 +1291,7 @@ curl -s --trace-ascii /dev/stderr -X POST $B/api/v1/posts \
 서버가 **실제로 받은** 헤더를 보고 싶으면(프록시를 거치면 달라질 수 있다) `src/lib/api/route.ts` 의 래퍼 안에
 `console.log(Object.fromEntries(request.headers))` 를 임시로 넣으면 `npm run dev` 터미널에 찍힌다. 확인 후에는 지운다.
 
-#### 13. 레이트 리밋 헤더와 OpenAPI 명세
+#### 14. 레이트 리밋 헤더와 OpenAPI 명세
 
 ```bash
 curl -s -D - -o /dev/null "$B/api/v1/posts?limit=1" | grep -i ratelimit   # 분당 60회, 남은 횟수
@@ -1272,7 +1313,9 @@ npx @redocly/cli preview-docs http://localhost:3000/api/v1/openapi.json
 | GET | `/api/v1` | — | 진입점. 엔드포인트 목록 |
 | GET | `/api/v1/openapi.json` | — | OpenAPI 3.1 명세 |
 | POST | `/api/v1/auth/register` | — | 가입. 토큰까지 함께 발급 |
-| POST | `/api/v1/auth/token` | — | 로그인 → 액세스 토큰 (1시간) |
+| POST | `/api/v1/auth/token` | — | 로그인 → 액세스 토큰 (1시간) + 리프레시 토큰 (30일) |
+| POST | `/api/v1/auth/refresh` | 리프레시 토큰 (본문) | 새 쌍 발급. 옛 리프레시 토큰은 소비(회전). 재사용하면 세션 전체 폐기 |
+| POST | `/api/v1/auth/logout` | 리프레시 토큰 (본문) | 리프레시 토큰 세션 폐기 |
 | GET | `/api/v1/auth/me` | 토큰·키 | 토큰 주인 확인 |
 | GET | `/api/v1/auth/keys` | 토큰만 | 내 API 키 목록 |
 | POST | `/api/v1/auth/keys` | 토큰만 | API 키 발급 |
@@ -1315,6 +1358,7 @@ HTTP 상태 코드만으로는 "왜 400 인지" 를 구분할 수 없어서 둘 
 | --- | --- | --- |
 | `bad_request` | 400 | JSON 이 깨졌거나 id 가 숫자가 아님 |
 | `unauthorized` | 401 | 토큰이 없거나 유효하지 않음 |
+| `refresh_token_reused` | 401 | 이미 소비된 리프레시 토큰을 다시 보냄. 그 세션의 토큰이 모두 폐기됐으니 저장된 토큰을 버리고 다시 로그인 |
 | `forbidden` | 403 | 남의 글을 수정하려 함 |
 | `not_found` | 404 | 없는 리소스 |
 | `conflict` | 409 | 이미 가입된 이메일 |
@@ -1339,18 +1383,19 @@ export const PATCH = apiRoute<{ id: string }>(async ({ request, params, auth }) 
 });
 ```
 
-### 5-4. 인증: 액세스 토큰과 API 키 (`src/lib/api/auth.ts`)
+### 5-4. 인증: 액세스 토큰, 리프레시 토큰, API 키 (`src/lib/api/auth.ts`, `src/lib/refresh-tokens.ts`)
 
-둘 다 `Authorization: Bearer <값>` 으로 받는다. 성격이 달라서 둘 다 있다.
+자격증명이 셋이다. 액세스 토큰과 API 키는 `Authorization: Bearer <값>` 으로 받고, 리프레시 토큰은 액세스 토큰을 "다시 받는" 용도라 본문으로만 받는다.
 
-| | 액세스 토큰 | API 키 |
-| --- | --- | --- |
-| 생김새 | `eyJhbGciOi...` (JWT) | `sk_8cee23a6...` |
-| 발급 | `POST /auth/token` (이메일+비번) | `POST /auth/keys` (토큰 필요) |
-| 유효기간 | 1시간 | 없음 |
-| 저장 | 서버에 저장 안 함 (stateless) | `api_keys` 테이블에 **해시만** |
-| 개별 폐기 | 불가 (만료를 기다림) | 가능 (`revoked_at`) |
-| 쓰는 곳 | 사용자 대신 행동하는 클라이언트 | 서버-투-서버 배치·봇 |
+| | 액세스 토큰 | 리프레시 토큰 | API 키 |
+| --- | --- | --- | --- |
+| 생김새 | `eyJhbGciOi...` (JWT) | `rt_3f9a...` (불투명 난수) | `sk_8cee23a6...` |
+| 발급 | `POST /auth/token` (이메일+비번) | 액세스 토큰과 함께 | `POST /auth/keys` (토큰 필요) |
+| 어디에 싣나 | `Authorization` 헤더 | `POST /auth/refresh` 본문 | `Authorization` 헤더 |
+| 유효기간 | 1시간 | 30일 (로그인 시점부터, 절대) | 없음 |
+| 저장 | 서버에 저장 안 함 (stateless) | `refresh_tokens` 테이블에 **해시만** | `api_keys` 테이블에 **해시만** |
+| 개별 폐기 | 불가 (만료를 기다림) | 가능 (`/auth/logout`, 재사용 감지) | 가능 (`revoked_at`) |
+| 쓰는 곳 | 매 요청 | 액세스 토큰이 만료됐을 때 | 서버-투-서버 배치·봇 |
 
 **왜 쿠키를 안 쓰나.** 브라우저는 쿠키를 자동으로 붙인다 → 남의 사이트가 우리 사용자의 브라우저를 시켜
 요청을 보낼 수 있다(CSRF). `Authorization` 헤더는 자동으로 붙지 않으므로 CSRF 가 성립하지 않는다.
@@ -1379,6 +1424,59 @@ const accessTokenKey = new Uint8Array(
 
 폐기는 행을 지우지 않고 `revoked_at` 만 채운다. 유출 사고가 났을 때 "언제 어떤 키가 쓰였는지"(`last_used_at`)
 이력이 남아야 무엇이 노출됐는지 추적할 수 있다.
+
+#### 리프레시 토큰: 회전 · 재사용 감지 · 서버 측 저장소 (`src/lib/refresh-tokens.ts`)
+
+액세스 토큰을 1시간으로 짧게 잡은 대가는 "1시간마다 다시 로그인" 이다. 리프레시 토큰은 그 대가를 없애면서도
+긴 자격증명이 유출됐을 때의 피해를 줄이기 위한 장치다. 다음 세 가지가 한 세트다.
+
+**1. 서버 측 저장소.** 액세스 토큰(JWT)은 서명만 검증하므로 서버가 "이 토큰은 이제 무효" 라고 말할 방법이 없다.
+30일이나 사는 리프레시 토큰은 그래서는 안 된다. `refresh_tokens` 테이블에 행을 두고 **행이 있어야만 유효**하게 한다.
+원문은 저장하지 않고 SHA-256 해시만 넣는다 (API 키와 같은 이유: 서버가 만든 256비트 난수라 느린 해시가 필요 없고, 매번 해시로 행을 찾아야 한다).
+
+**2. 회전(rotation).** `POST /auth/refresh` 는 새 액세스 토큰만 주는 게 아니라 **새 리프레시 토큰도 함께** 주고,
+받은 옛 토큰은 `used_at` 을 채워 소비한다. 토큰 하나는 딱 한 번만 쓰인다. 클라이언트는 응답의 새 값으로 갈아 끼워야 한다.
+
+**3. 재사용 감지(reuse detection).** 이미 소비된 토큰이 다시 오면 탈취 신호로 본다. 정상 클라이언트는 새 토큰을 받았으니
+옛 것을 다시 쓸 이유가 없다. 문제는 **누가 먼저 썼는지 서버가 알 수 없다**는 것이다.
+
+| 시나리오 | 첫 번째 갱신 | 두 번째 갱신 (같은 옛 토큰) |
+| --- | --- | --- |
+| 탈취범이 먼저 | 탈취범이 새 토큰을 받음 | 정상 사용자 → 재사용 감지 |
+| 정상 사용자가 먼저 | 정상 사용자가 새 토큰을 받음 | 탈취범 → 재사용 감지 |
+
+어느 쪽이든 두 번째 요청이 왔다는 사실 자체가 "이 세션에 토큰이 둘 이상 돌아다닌다" 는 증거다. 그래서 그 로그인 세션에 속한
+토큰을 **전부** 폐기해 둘 다 쫓아낸다. 정상 사용자는 다시 로그인하면 되고, 탈취범은 비밀번호가 없으니 여기서 끝난다.
+클라이언트는 `refresh_token_reused` 코드를 보면 저장된 토큰을 버리고 "다른 곳에서 로그인이 감지되어 로그아웃되었습니다" 같은 안내를 해야 한다.
+
+**가족(family).** 위의 "로그인 세션" 을 코드에서는 가족이라 부른다. 로그인 한 번 = `family_id` 하나, 회전으로 생긴 토큰은 같은 값을 물려받는다.
+기기 두 대에서 각각 로그인했다면 가족이 둘이라, 한쪽의 재사용 감지가 다른 쪽을 건드리지 않는다.
+
+```
+로그인 ──▶ rt_A (가족 F) ──refresh──▶ rt_B (가족 F) ──refresh──▶ rt_C (가족 F)
+             used_at 채움                used_at 채움                (현재 유효)
+
+rt_A 를 다시 보내면?  ──▶ 재사용 감지 → 가족 F 의 A, B, C 전부 revoked_at 채움
+```
+
+**절대 수명.** 새 토큰은 만료 시각(`expires_at`)도 물려받는다. 그래서 가족은 로그인 시점부터 30일이 지나면 회전을 아무리 해도 만료된다.
+갱신할 때마다 30일을 새로 주는 방식(sliding)이 더 편하지만 한 번 로그인한 세션이 영원히 살 수 있어서, 여기서는
+"최소 30일에 한 번은 비밀번호를 다시 확인한다" 를 택했다. 응답의 `refreshExpiresIn` 이 갱신할수록 줄어드는 것이 이 때문이다.
+
+**트랜잭션.** "검사 → 소비 → 발급" 은 `BEGIN IMMEDIATE … COMMIT` 하나로 묶여 있다 (`rotateRefreshToken`).
+같은 토큰으로 요청 둘이 동시에 와도 하나만 성공하고 나머지는 재사용으로 잡힌다.
+검사 순서도 의도된 것이다: 없음 → 폐기됨 → **소비됨(재사용)** → 만료. 재사용을 만료보다 먼저 보는 이유는,
+만료된 토큰이라도 "두 번 쓰였다" 는 사실은 여전히 탈취 신호이기 때문이다.
+
+**로그아웃(`POST /auth/logout`)** 은 가족 전체를 폐기한다. 단, 이미 발급된 액세스 토큰은 stateless 라 남은 시간(최대 1시간) 동안 유효하다.
+"로그아웃 즉시 모든 요청 차단" 이 필요하면 액세스 토큰도 저장소에 두거나(= stateless 포기) 수명을 몇 분으로 줄여야 한다.
+이 프로젝트는 "짧은 것은 저장 안 함, 긴 것만 서버가 관리" 라는 흔한 절충을 택했다.
+
+**헤더에 넣지 않는다.** 리프레시 토큰은 `Authorization` 헤더가 아니라 `/auth/refresh` 본문으로만 보낸다. 실수로 헤더에 넣으면
+`authenticate()` 가 `rt_` 접두사를 보고 어디로 보내야 하는지 알려 주는 401 을 준다 (조용히 "유효하지 않은 토큰" 으로 처리하면 원인을 찾기 어렵다).
+
+**웹 화면의 세션 쿠키와는 별개다.** `src/lib/session.ts` 의 쿠키는 여전히 7일짜리 단일 JWT 다. 같은 기법(짧은 쿠키 + 회전하는 리프레시 쿠키)을
+적용할 수도 있지만, 쿠키는 브라우저가 자동으로 관리해 주므로 API 클라이언트만큼 절실하지 않아 그대로 두었다.
 
 ### 5-5. 공통 처리 래퍼 (`src/lib/api/route.ts`)
 
@@ -1620,7 +1718,7 @@ E2E(`e2e/zustand.spec.ts`)가 "서버 HTML 에는 배지가 없다" 를 확인�
 
 ORM 은 이걸 **스키마 파일 하나에서 타입 자동 생성, 타입 안전한 쿼리, 마이그레이션 이력 관리** 로 바꾼다. `prisma.post.findMany({ where: { title: { contains: q } }, include: { author: true } })` 처럼 쓰면 컬럼 이름 오타가 컴파일 에러가 되고, 반환 타입이 자동으로 나온다.
 
-대신 SQL 이 가려져서 성능 문제를 찾기 어렵고, 학습 곡선과 빌드 단계(`prisma generate`)가 추가된다. 그래서 **학습 초기에는 SQL 을 직접 쓰는 게 맞고**, 테이블이 열 개를 넘고 관계가 복잡해지면 ORM 이 값을 한다. 이 프로젝트는 테이블 5개라 아직 그 문턱 아래다.
+대신 SQL 이 가려져서 성능 문제를 찾기 어렵고, 학습 곡선과 빌드 단계(`prisma generate`)가 추가된다. 그래서 **학습 초기에는 SQL 을 직접 쓰는 게 맞고**, 테이블이 열 개를 넘고 관계가 복잡해지면 ORM 이 값을 한다. 이 프로젝트는 테이블 6개라 아직 그 문턱 아래다.
 
 ### 7-2. tRPC 가 해결하는 것: 브라우저와 서버 사이의 타입 단절
 
@@ -1688,18 +1786,19 @@ VS Code 에서는 `~/Dev/next-js-study.code-workspace` 파일(세 폴더를 묶�
 
 ### 7-5. `feat/prisma` 브랜치: 주요 변경 파일과 코드
 
-**한 줄 요약**: 화면·Server Action·Route Handler 는 그대로 두고, `src/lib/` 의 데이터 접근 함수 5개 파일만 SQL 문자열 → Prisma 쿼리로 바꿨다. 함수 이름과 반환 타입이 같아서 위 층은 `await` 를 붙이는 것 말고는 손대지 않았다. (55개 파일 변경 중 대부분은 `await` 추가와 테스트 조정)
+**한 줄 요약**: 화면·Server Action·Route Handler 는 그대로 두고, `src/lib/` 의 데이터 접근 함수 6개 파일만 SQL 문자열 → Prisma 쿼리로 바꿨다. 함수 이름과 반환 타입이 같아서 위 층은 `await` 를 붙이는 것 말고는 손대지 않았다. (55개 파일 변경 중 대부분은 `await` 추가와 테스트 조정)
 
 | 파일 | 상태 | 역할 |
 | --- | --- | --- |
 | `prisma/schema.prisma` | 새로 생김 | 테이블 정의의 단일 출처. `@@map`/`@map` 으로 기존 snake_case 이름을 유지해 같은 `data/app.db` 를 쓴다 |
 | `prisma/migrations/0_init/migration.sql` | 새로 생김 | 스키마에서 생성한 초기 마이그레이션. 이후 변경은 `npm run db:migrate:dev` 가 새 폴더로 쌓는다 |
+| `prisma/migrations/1_refresh_tokens/migration.sql` | 새로 생김 | 리프레시 토큰(Part 5-4)의 `refresh_tokens` 테이블. `schema.prisma` 의 `RefreshToken` 모델에서 생성한 두 번째 마이그레이션 (코드 7) |
 | `prisma.config.ts` | 새로 생김 | Prisma CLI 설정: 스키마 위치, `DATABASE_URL`, 시드 명령(`tsx prisma/seed.ts`) |
 | `prisma/seed.ts` | 새로 생김 (`scripts/seed-db.mts` 대체) | Prisma Client 로 샘플 데이터 삽입. `upsert`, `createMany` 사용 |
 | `src/generated/prisma/` | 자동 생성 (git 제외) | `prisma generate` 산출물. 모델 타입과 클라이언트. `postinstall` 이 다시 만든다 |
 | `src/lib/prisma.ts` | 새로 생김 (`db.ts` 대체) | `PrismaClient` 싱글턴 + `better-sqlite3` 어댑터 |
 | `src/lib/sql-now.ts` | 새로 생김 | `datetime('now')` 형식 문자열. 기존 TEXT 날짜 컬럼과 호환용 |
-| `src/lib/{users,todos,posts,comments,api-keys}.ts` | 전면 수정 | 같은 함수 이름, Prisma 구현, 전부 `async` |
+| `src/lib/{users,todos,posts,comments,api-keys,refresh-tokens}.ts` | 전면 수정 | 같은 함수 이름, Prisma 구현, 전부 `async`. `refresh-tokens.ts` 는 `$transaction` 으로 회전을 묶는다 (코드 7) |
 | `src/lib/db.ts`, `src/lib/schema.ts`, `scripts/*.mts` | 삭제 | Prisma 가 연결·스키마·시드를 맡는다 |
 | `src/test/setup.ts` | 수정 | 임시 DB 를 `prisma/migrations/*.sql` 로 만든다 |
 | `playwright.config.ts` | 수정 | E2E DB 삭제 → `migrate deploy` → 시드 → 빌드 |
@@ -1827,9 +1926,53 @@ flowchart LR
     E --> F[actions.ts · page.tsx<br/>await 만 추가]
 ```
 
+#### 코드 7. 트랜잭션: `BEGIN IMMEDIATE` 직접 → `$transaction` (`src/lib/refresh-tokens.ts`)
+
+리프레시 토큰 회전(Part 5-4)은 "검사 → 옛 토큰 소비 → 새 토큰 발급" 이 반드시 한 덩어리여야 한다. 같은 토큰으로 요청 둘이 동시에 와도
+하나만 성공해야 재사용 감지가 성립하기 때문이다. 두 브랜치가 이 원자성을 표현하는 방식이 다르다 (검사 일부는 생략).
+
+```ts
+// main — node:sqlite 는 동기라서 BEGIN/COMMIT 을 직접 감싼다
+function transaction<T>(fn: () => T): T {
+  db.exec("BEGIN IMMEDIATE");
+  try { const result = fn(); db.exec("COMMIT"); return result; }
+  catch (error) { db.exec("ROLLBACK"); throw error; }
+}
+
+export function rotateRefreshToken(token: string): RotateResult {
+  return transaction(() => {
+    const row = findRow(token); // SELECT * FROM refresh_tokens WHERE token_hash = ?
+    if (row.used_at !== null) { revokeFamily(row.family_id); return { ok: false, reason: "reused" }; }
+    db.prepare("UPDATE refresh_tokens SET used_at = datetime('now') WHERE id = ?").run(row.id);
+    return { ok: true, userId: row.user_id, next: insertToken(row.user_id, row.family_id, expiresAt) };
+  });
+}
+```
+
+```ts
+// feat/prisma — 대화형 트랜잭션. 콜백이 정상 종료하면 COMMIT, throw 하면 ROLLBACK
+export async function rotateRefreshToken(token: string): Promise<RotateResult> {
+  return prisma.$transaction(async (tx): Promise<RotateResult> => {
+    const row = await tx.refreshToken.findUnique({ where: { tokenHash: hashRefreshToken(token) } });
+    if (row.usedAt !== null) { await revokeFamily(tx, row.familyId); return { ok: false, reason: "reused" }; }
+    await tx.refreshToken.update({ where: { id: row.id }, data: { usedAt: sqlNow() } });
+    return { ok: true, userId: row.userId, next: await insertToken(tx, row.userId, row.familyId, expiresAt) };
+  });
+}
+```
+
+차이는 두 가지다.
+
+1. **콜백 안의 쿼리는 반드시 `tx` 로.** `prisma.refreshToken…` 을 쓰면 트랜잭션 **밖**에서 실행되어 조용히 원자성이 깨진다.
+   그래서 `revokeFamily`, `insertToken` 같은 헬퍼가 `Prisma.TransactionClient` 를 인자로 받는다. main 에는 이런 구분이 없다 (연결이 하나뿐이고 동기라서).
+2. **스키마 변경 절차.** main 은 `src/lib/schema.ts` 에 `CREATE TABLE IF NOT EXISTS refresh_tokens` 를 추가하면 다음 연결 때 자동 생성된다.
+   feat/prisma 는 `schema.prisma` 에 `RefreshToken` 모델을 추가하고 마이그레이션(`prisma/migrations/1_refresh_tokens/`)을 만들어 `npm run db:migrate` 로 적용해야 한다.
+   이력이 남고 여러 환경에 같은 순서로 적용되는 대신 단계가 하나 더 있다.
+
 ### 7-6. `feat/trpc` 브랜치: 주요 변경 파일과 코드
 
 **한 줄 요약**: `src/lib/` 데이터 층은 그대로 두고, 그 위에 tRPC 라우터를 얹어 "브라우저 → 서버" 호출을 타입 안전하게 만들었다. `/client-fetch` 에 tRPC 섹션을 추가하고, `/feed` 와 댓글을 tRPC 로 바꿨다. 글 작성·수정·삭제 Server Action 은 그대로다.
+공개 API(`/api/v1`)와 그 인증(액세스 토큰, 리프레시 토큰 회전·재사용 감지, API 키 — Part 5-4)도 그대로다. tRPC 프로시저는 세션 쿠키(`ctx.user`)로 인증하므로 토큰을 쓰지 않는다.
 
 | 파일 | 상태 | 역할 |
 | --- | --- | --- |
@@ -2022,8 +2165,8 @@ DB 파일(`data/*.db`)은 git 에 올리지 않는다. 대신 스키마와 시�
 | `npm run db:seed` | 비어 있는 테이블에만 샘플 데이터 삽입 |
 | `npm run db:seed -- --reset` | 모든 테이블을 비우고 샘플 데이터로 다시 채움 (id 도 1부터) |
 
-테이블은 `users`, `todos`, `posts`, `comments`, `api_keys` 다 (정의는 `src/lib/schema.ts`).
-`api_keys` 는 공개 API 용이며, 키 원문은 저장하지 않고 SHA-256 해시만 넣는다 (Part 5-4).
+테이블은 `users`, `todos`, `posts`, `comments`, `api_keys`, `refresh_tokens` 다 (정의는 `src/lib/schema.ts`).
+`api_keys` 와 `refresh_tokens` 는 공개 API 용이며, 원문은 저장하지 않고 SHA-256 해시만 넣는다 (Part 5-4).
 
 샘플 데이터는 `scripts/seed-db.mts` 의 `SEED_TODOS`, `SEED_POSTS` 배열을 수정하면 된다.
 완전히 초기 상태로 돌리려면 `data/app.db`, `data/app.db-wal`, `data/app.db-shm` 을 지우고 다시 실행한다.
@@ -2107,6 +2250,7 @@ src/
         openapi.json/route.ts # OpenAPI 3.1 명세 (정적)
         auth/
           register/, token/, me/   # 가입 / 토큰 발급 / 신원 확인
+          refresh/, logout/        # 리프레시 토큰 회전 / 세션 폐기
           keys/route.ts, keys/[id]/route.ts  # API 키 발급·목록·폐기
         posts/route.ts, posts/[id]/route.ts  # 목록·작성 / 조회·수정·삭제
         posts/[id]/comments/route.ts         # 댓글 목록·작성
@@ -2137,6 +2281,7 @@ src/
       serialize.ts  # 내부 타입 → 공개 JSON (password_hash 유출 차단)
       openapi.ts    # OpenAPI 3.1 문서
     api-keys.ts     # api_keys 접근 함수 (SHA-256 해시 저장, 폐기)
+    refresh-tokens.ts # refresh_tokens 접근 함수 (회전, 재사용 감지, 가족 폐기)
     *.test.ts       # 각 모듈 옆에 두는 테스트 (colocated)
     password.ts     # scrypt 해시 / 검증
     session.ts      # JWT 세션 쿠키 생성 / 검증 / 삭제
