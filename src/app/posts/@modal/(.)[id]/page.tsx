@@ -10,10 +10,12 @@ import { RouteModal } from "@/components/modal";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getPost, getPostIds } from "@/lib/posts";
 import { imageUrl } from "@/lib/uploads";
+import { log } from "@/lib/study-log";
 
 // 동적 세그먼트이므로 Cache Components 규칙대로 최소 1개를 돌려준다
 export async function generateStaticParams() {
   const ids = getPostIds().slice(0, 2);
+  log.build(`generateStaticParams(/posts/@modal/(.)[id]) → [${ids.join(", ")}]`);
   return ids.length > 0 ? ids.map((id) => ({ id: String(id) })) : [{ id: "0" }];
 }
 
@@ -27,6 +29,7 @@ export default function InterceptedPostPage({ params }: PageProps<"/posts/[id]">
 
 async function ModalContent({ params }: Pick<PageProps<"/posts/[id]">, "params">) {
   const { id } = await params;
+  log.render(`ModalContent(인터셉팅 라우트) → getPost(${id}) 호출. Link 클릭(클라이언트 이동)에서만 실행되고, 새로고침이면 [id]/page.tsx 의 PostDetail 이 대신 찍힌다`);
   const post = await getPost(Number(id));
 
   if (!post) {

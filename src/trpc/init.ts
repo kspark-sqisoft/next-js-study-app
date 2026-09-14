@@ -20,6 +20,7 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import { cache } from "react";
 import superjson from "superjson";
 import { getCurrentUser } from "@/lib/dal";
+import { log } from "@/lib/study-log";
 
 /**
  * 컨텍스트(ctx): 모든 프로시저가 두 번째 인자 { ctx } 로 받는 요청 단위 정보.
@@ -51,6 +52,21 @@ const t = initTRPC.context<Context>().create({
   transformer: superjson,
 });
 
+/**
+ * 학습용 로그 미들웨어. 모든 프로시저(public/protected)에 붙어서 "무엇이 어떤 입력으로 불렸고 얼마나 걸렸는지" 를 찍는다.
+ * 미들웨어는 next() 앞뒤로 코드를 둘 수 있어서 이런 계측에 적합하다 (protectedProcedure 의 로그인 검사도 같은 자리).
+ * path 는 "posts.list" 처럼 라우터 키 경로, type 은 query | mutation. ctx.user 는 컨텍스트에서 읽는다.
+ */
+const loggerMiddleware = t.middleware(async ({ path, type, input, ctx, next }) => {
+  const started = performance.now();
+  log.trpc(`${path} (${type}) 시작 — 사용자: ${ctx.user ? `${ctx.user.name}(#${ctx.user.id})` : "비로그인"}`, input);
+  const result = await next();
+  const ms = (performance.now() - started).toFixed(1);
+  if (result.ok) log.trpc(`  ↳ ${path} 성공 (${ms}ms)`);
+  else log.trpc(`  ↳ ${path} 실패 ${result.error.code}: ${result.error.message} (${ms}ms)`);
+  return result;
+});
+
 /** 라우터 생성 함수. routers/_app.ts 와 routers/*.ts 에서 프로시저들을 객체로 묶을 때 쓴다 */
 export const createTRPCRouter = t.router;
 
@@ -62,7 +78,7 @@ export const createCallerFactory = t.createCallerFactory;
  * 조회(posts.list, posts.search, comments.list)처럼 로그아웃 상태에서도 되어야 하는 것에 쓴다.
  * ctx.user 는 User | null 타입이다.
  */
-export const publicProcedure = t.procedure;
+export const publicProcedure = t.procedure.use(loggerMiddleware);
 
 /**
  * 로그인 필수 프로시저. .use(미들웨어) 로 검사를 끼워 넣는다.
@@ -78,8 +94,9 @@ export const publicProcedure = t.procedure;
  * main 브랜치와 비교: Server Action 마다 `const user = await getCurrentUser(); if (!user) return { error }` 를
  * 반복했다. 여기서는 검사가 한 곳에 있고, 프로시저 정의에 protectedProcedure 라고 적는 것 자체가 문서가 된다.
  */
-export const protectedProcedure = t.procedure.use(({ ctx, next }) => {
+export const protectedProcedure = t.procedure.use(loggerMiddleware).use(({ ctx, next }) => {
   if (!ctx.user) {
+    log.trpc("  ↳ protectedProcedure: ctx.user 없음 → UNAUTHORIZED. 프로시저 본문은 실행되지 않는다");
     throw new TRPCError({ code: "UNAUTHORIZED", message: "로그인이 필요합니다." });
   }
   return next({ ctx: { user: ctx.user } }); // 이 아래 프로시저들의 ctx.user 는 non-null

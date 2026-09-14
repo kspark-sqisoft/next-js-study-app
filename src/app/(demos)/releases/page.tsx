@@ -10,10 +10,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { getNextReleases } from "@/lib/github";
 import { RefreshReleasesButton } from "./refresh-button";
 import { ReleaseList } from "./release-list";
+import { log } from "@/lib/study-log";
 
 export const metadata: Metadata = { title: "Next.js 릴리스 | Next.js Study App" };
 
 export default function ReleasesPage() {
+  log.render("ReleasesPage → getNextReleases() 호출 (await 안 함). Promise 를 클라이언트 컴포넌트에 넘겨 use() 로 읽는다");
   const releasesPromise = getNextReleases(); // await 하지 않는다
 
   return (

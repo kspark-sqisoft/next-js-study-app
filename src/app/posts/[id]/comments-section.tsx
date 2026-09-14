@@ -13,12 +13,14 @@
 import { getCurrentUser } from "@/lib/dal";
 import { HydrateClient, prefetch, trpc } from "@/trpc/server";
 import { CommentThreads } from "./comment-threads";
+import { log } from "@/lib/study-log";
 
 export async function CommentsSection({ postId }: { postId: number }) {
   // 세션(쿠키) 읽기는 요청 시점 작업이라 Cache Components 규칙상 Suspense 안이어야 한다 (page.tsx 가 감싼다).
   // 현재 사용자 id 를 클라이언트에 넘기는 이유: "내 댓글에만 삭제 버튼" 을 그리기 위해서. 표시용일 뿐이고
   // 실제 삭제 권한은 routers/comments.ts 의 remove 프로시저가 ctx.user 로 다시 검사한다.
   const user = await getCurrentUser();
+  log.render(`CommentsSection(postId=${postId}) ← 현재 사용자 ${user ? user.name : "없음"}. 이어서 tRPC comments.list 를 prefetch (HTTP 없이 서버 안에서 직접 실행)`);
 
   // prefetch: 서버에서 라우터를 직접 호출(HTTP 없음)해 서버 QueryClient 를 채운다. await 하지 않는다.
   // 기다리면 이 컴포넌트가 데이터 도착까지 멈추지만, 기다리지 않으면 pending 상태 그대로 HydrateClient 가

@@ -2,6 +2,7 @@
 import "server-only";
 import { cacheLife, cacheTag } from "next/cache";
 import { db } from "@/lib/db";
+import { log } from "@/lib/study-log";
 
 export type Comment = {
   id: number;
@@ -53,6 +54,7 @@ export async function getCommentThreads(postId: number): Promise<CommentThread[]
   "use cache";
   cacheLife("hours");
   cacheTag(commentsTag(postId));
+  log.cache(`getCommentThreads(postId=${postId}) — 몸체 실행, DB 조회. 태그: ${commentsTag(postId)}`);
 
   const rows = db
     .prepare(

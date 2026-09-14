@@ -11,6 +11,7 @@ import { apiRoute } from "@/lib/api/route";
 import { serializeTodo } from "@/lib/api/serialize";
 import { todoCreateSchema, todoListQuerySchema } from "@/lib/schemas/api";
 import { createTodo, listTodos, setTodoCompleted } from "@/lib/todos";
+import { log } from "@/lib/study-log";
 
 export const GET = apiRoute(async ({ request }) => {
   const { completed, limit, offset } = parseQuery(request.nextUrl, todoListQuerySchema);
@@ -31,6 +32,7 @@ export const POST = apiRoute(async ({ request, auth }) => {
 
   // /todos 화면은 "use cache" 가 아니라 revalidatePath 로 갱신한다 (src/app/todos/actions.ts 와 같은 방식).
   // Route Handler 에서 부르면 "다음에 그 경로를 방문할 때" 다시 렌더링된다.
+  log.invalidate("revalidatePath", ["/todos"]);
   revalidatePath("/todos");
 
   return ok(serializeTodo({ ...todo, completed: completed ?? false }), 201, {

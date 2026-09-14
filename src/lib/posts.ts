@@ -4,6 +4,7 @@ import "server-only";
 import { cacheLife, cacheTag } from "next/cache";
 import { connection } from "next/server";
 import { db } from "@/lib/db";
+import { log } from "@/lib/study-log";
 
 export type Post = {
   id: number;
@@ -73,6 +74,9 @@ export async function getPostsPage(query: string, page: number): Promise<PostsPa
   "use cache";
   cacheLife("minutes");
   cacheTag("posts");
+  // 몸체가 실행될 때만 찍힌다 (= 캐시 MISS). HIT 이면 몸체가 실행되지 않으므로 DB 조회도 없다.
+  // 단, 개발 모드는 예전 실행의 로그를 "[ Cache ]" 접두어로 다시 보여 주므로 로그 안의 시각으로 구분한다 (study-log.ts 참고).
+  log.cache(`getPostsPage(query="${query}", page=${page}) — 몸체 실행, DB 조회 2번 (COUNT + SELECT)`);
 
   const like = `%${query}%`;
   const where = query ? "WHERE p.title LIKE ? OR p.content LIKE ?" : "";
@@ -106,6 +110,7 @@ export async function getPost(id: number): Promise<Post | null> {
   "use cache";
   cacheLife("hours");
   cacheTag("posts", `post-${id}`);
+  log.cache(`getPost(${id}) — 몸체 실행, DB 조회. 태그: posts, post-${id}`);
 
   const row = db.prepare(`${SELECT_POST} WHERE p.id = ?`).get(id) as PostRow | undefined;
   return row ? toPost(row) : null;
@@ -128,6 +133,7 @@ export function getPostIds(): number[] {
  */
 export async function getOtherPosts(excludeId: number): Promise<Post[]> {
   await connection();
+  log.render(`getOtherPosts(excludeId=${excludeId}) — connection() 통과 → 요청 시점 실행 (캐시 없음). 1.5초 지연 시작`);
   await new Promise((resolve) => setTimeout(resolve, 1500));
   const rows = db
     .prepare(`${SELECT_POST} WHERE p.id != ? ORDER BY p.id DESC LIMIT 5`)

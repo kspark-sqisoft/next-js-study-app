@@ -18,13 +18,18 @@
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { createTRPCContext } from "@/trpc/init";
 import { appRouter } from "@/trpc/routers/_app";
+import { log } from "@/lib/study-log";
 
-const handler = (req: Request) =>
-  fetchRequestHandler({
+const handler = (req: Request) => {
+  const url = new URL(req.url);
+  // 경로의 콤마는 httpBatchLink 가 여러 호출을 한 요청으로 묶은 것. 아래 [trpc] 로그가 프로시저별로 따로 찍힌다.
+  log.api(`${req.method} ${url.pathname}${url.search ? "?…" : ""} → tRPC HTTP 입구 (${url.searchParams.has("batch") ? "배치 " : ""}${req.method === "GET" ? "query" : "mutation"})`);
+  return fetchRequestHandler({
     endpoint: "/api/trpc", // URL 에서 이 접두사를 뗀 나머지가 프로시저 경로
     req,
     router: appRouter,
     createContext: createTRPCContext, // 요청마다 { user } 컨텍스트 생성 (init.ts)
   });
+};
 
 export { handler as GET, handler as POST };

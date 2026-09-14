@@ -13,6 +13,7 @@ import { serializePost } from "@/lib/api/serialize";
 import { deletePost, findPost, updatePost } from "@/lib/posts";
 import { postUpdateSchema } from "@/lib/schemas/api";
 import { deleteImage } from "@/lib/uploads";
+import { log } from "@/lib/study-log";
 
 /** 세 핸들러가 모두 하는 일: id 파싱 → 글 조회 → 없으면 404 */
 function loadPost(rawId: string) {
@@ -37,6 +38,7 @@ export const PATCH = apiRoute<{ id: string }>(async ({ request, params, auth }) 
   // imagePath 를 그대로 넘기는 것이 중요하다 — 빠뜨리면 수정할 때마다 첨부 이미지가 사라진다.
   updatePost(post.id, body.title ?? post.title, body.content ?? post.content, post.imagePath);
 
+  log.invalidate("revalidateTag:expire0", ["posts", `post-${post.id}`]);
   revalidateTag("posts", { expire: 0 });
   revalidateTag(`post-${post.id}`, { expire: 0 });
 
@@ -51,6 +53,7 @@ export const DELETE = apiRoute<{ id: string }>(async ({ params, auth }) => {
   deletePost(post.id); // 댓글은 ON DELETE CASCADE 로 함께 삭제된다
   await deleteImage(post.imagePath); // 첨부 파일도 정리 (DB 행만 지우면 파일이 계속 남는다)
 
+  log.invalidate("revalidateTag:expire0", ["posts", `post-${post.id}`]);
   revalidateTag("posts", { expire: 0 });
   revalidateTag(`post-${post.id}`, { expire: 0 });
 

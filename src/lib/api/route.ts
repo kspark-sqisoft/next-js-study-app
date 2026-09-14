@@ -10,6 +10,7 @@ import type { NextRequest } from "next/server";
 import { authenticate, clientIp, type Principal } from "@/lib/api/auth";
 import { ApiError, errorResponse } from "@/lib/api/http";
 import { checkRateLimit, WINDOW_SECONDS, type RateLimitResult } from "@/lib/api/rate-limit";
+import { log } from "@/lib/study-log";
 
 /** 분당 허용 요청 수. 인증된 요청에 더 넉넉하게 준다 (누가 쓰는지 알고, 문제가 생기면 키를 폐기할 수 있으므로). */
 const ANONYMOUS_LIMIT = 60;
@@ -38,15 +39,20 @@ function rateLimitHeaders(rate: RateLimitResult): Record<string, string> {
 export function apiRoute<P extends Record<string, string> = Record<string, never>>(handler: Handler<P>) {
   return async function handle(request: NextRequest, context?: { params: Promise<P> }): Promise<Response> {
     let headers: Record<string, string> = {};
+    const started = performance.now();
+    const label = `${request.method} ${request.nextUrl.pathname}${request.nextUrl.search}`;
+    const elapsed = () => `${(performance.now() - started).toFixed(1)}ms`;
     try {
       // 1. 인증 먼저. 누구인지 알아야 레이트 리밋을 사용자 단위로 걸 수 있다.
       //    (반대로 하면 같은 사무실에서 나가는 모든 요청이 IP 하나의 몫을 나눠 쓰게 된다)
       const auth = await authenticate(request);
+      log.api(`${label} → 인증: ${auth ? `${auth.via} (userId=${auth.user.id})` : "익명 (Authorization 헤더 없음)"}`);
 
       // 2. 레이트 리밋
       const identity = auth ? `user:${auth.user.id}` : `ip:${clientIp(request)}`;
       const rate = checkRateLimit(identity, auth ? AUTHENTICATED_LIMIT : ANONYMOUS_LIMIT);
       headers = rateLimitHeaders(rate);
+      log.api(`  ↳ 레이트 리밋 ${identity}: 이번 창 ${rate.limit - rate.remaining}/${rate.limit} 사용, 초기화 ${new Date(rate.resetAt * 1000).toISOString().slice(11, 19)}Z`);
       if (!rate.ok) {
         const retryAfter = Math.max(1, rate.resetAt - Math.floor(Date.now() / 1000));
         throw new ApiError(
@@ -61,12 +67,16 @@ export function apiRoute<P extends Record<string, string> = Record<string, never
       const params = context?.params ? await context.params : ({} as P);
       const response = await handler({ request, params, auth });
       for (const [name, value] of Object.entries(headers)) response.headers.set(name, value);
+      log.api(`  ↳ ${response.status} 응답 (${elapsed()})`);
       return response;
     } catch (error) {
       // Next.js 내부 제어용 에러(redirect 등)는 우리가 삼키면 안 된다
       unstable_rethrow(error);
 
-      if (error instanceof ApiError) return errorResponse(error, headers);
+      if (error instanceof ApiError) {
+        log.api(`${label} ↳ ${error.status} ${error.code}: ${error.message} (${elapsed()})`);
+        return errorResponse(error, headers);
+      }
 
       // 예상 못 한 예외. 원인은 서버 로그에만 남기고 클라이언트에는 일반적인 문구만 준다.
       // 스택 트레이스나 SQL 문구가 응답에 섞이면 내부 구조가 그대로 노출된다.

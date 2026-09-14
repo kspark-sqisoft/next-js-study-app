@@ -8,6 +8,7 @@ import { apiRoute } from "@/lib/api/route";
 import { serializeTodo } from "@/lib/api/serialize";
 import { todoUpdateSchema } from "@/lib/schemas/api";
 import { deleteTodo, findTodo, setTodoCompleted, updateTodoTitle } from "@/lib/todos";
+import { log } from "@/lib/study-log";
 
 function loadTodo(rawId: string) {
   const todo = findTodo(parseIdParam(rawId));
@@ -28,6 +29,7 @@ export const PATCH = apiRoute<{ id: string }>(async ({ request, params, auth }) 
   if (body.title !== undefined) updateTodoTitle(todo.id, body.title);
   if (body.completed !== undefined) setTodoCompleted(todo.id, body.completed);
 
+  log.invalidate("revalidatePath", ["/todos"]);
   revalidatePath("/todos");
   return ok(serializeTodo(findTodo(todo.id)!));
 });
@@ -37,6 +39,7 @@ export const DELETE = apiRoute<{ id: string }>(async ({ params, auth }) => {
   const todo = loadTodo(params.id);
 
   deleteTodo(todo.id);
+  log.invalidate("revalidatePath", ["/todos"]);
   revalidatePath("/todos");
 
   return noContent();

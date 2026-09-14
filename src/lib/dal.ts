@@ -7,6 +7,7 @@ import { cache } from "react";
 import { redirect } from "next/navigation";
 import { getSessionUserId } from "@/lib/session";
 import { findUserById, type User } from "@/lib/users";
+import { log } from "@/lib/study-log";
 
 /**
  * 현재 로그인한 사용자. 없으면 null.
@@ -15,8 +16,15 @@ import { findUserById, type User } from "@/lib/users";
  */
 export const getCurrentUser = cache(async (): Promise<User | null> => {
   const userId = await getSessionUserId();
-  if (!userId) return null;
-  return findUserById(userId); // 탈퇴 등으로 사용자가 없어졌으면 null
+  if (!userId) {
+    log.session("getCurrentUser() → 비로그인 (세션 쿠키 없음). react cache(): 같은 요청 안에서는 이 로그가 한 번만 찍힌다");
+    return null;
+  }
+  const user = findUserById(userId); // 탈퇴 등으로 사용자가 없어졌으면 null
+  log.session(
+    `getCurrentUser() → userId=${userId}${user ? ` (${user.name})` : " (DB 에 없음)"}. react cache(): 같은 요청 안에서는 이 로그가 한 번만 찍힌다`,
+  );
+  return user;
 });
 
 /** 로그인이 꼭 필요한 곳에서 사용. 없으면 로그인 페이지로 보낸다. */

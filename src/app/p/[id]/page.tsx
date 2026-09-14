@@ -10,6 +10,7 @@
 // 여기서는 DB 조회 결과에 따라 목적지를 정해야 하는 경우처럼 "코드가 필요한" 리다이렉트의 형태를 보여 준다.
 import { notFound, permanentRedirect } from "next/navigation";
 import { getPost } from "@/lib/posts";
+import { log } from "@/lib/study-log";
 
 export async function generateStaticParams() {
   return [{ id: "1" }];
@@ -19,5 +20,6 @@ export default async function ShortLinkPage({ params }: PageProps<"/p/[id]">): P
   const { id } = await params;
   const post = await getPost(Number(id));
   if (!post) notFound(); // 없는 글이면 리다이렉트하지 않고 404
+  log.render(`ShortLinkPage(/p/${id}) → 308 permanentRedirect → /posts/${post.id} (Suspense 밖이라 진짜 HTTP 308)`);
   permanentRedirect(`/posts/${post.id}`);
 }

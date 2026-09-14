@@ -26,6 +26,7 @@ import { commentsTag, createComment, deleteComment, findComment, getCommentThrea
 import { getPost } from "@/lib/posts";
 import { commentSchema } from "@/lib/schemas/comment";
 import { createTRPCRouter, protectedProcedure, publicProcedure } from "../init";
+import { log } from "@/lib/study-log";
 
 export const commentsRouter = createTRPCRouter({
   /**
@@ -65,6 +66,7 @@ export const commentsRouter = createTRPCRouter({
       }
 
       const id = createComment(input.postId, ctx.user.id, input.content, parentId); // 작성자는 ctx 에서. 클라이언트가 보낸 값을 믿지 않는다
+      log.invalidate("revalidateTag:expire0", [commentsTag(input.postId)]);
       revalidateTag(commentsTag(input.postId), { expire: 0 }); // 서버 "use cache" 무효화 (Route Handler 컨텍스트 → updateTag 대신)
       return { id };
     }),
@@ -84,6 +86,7 @@ export const commentsRouter = createTRPCRouter({
         throw new TRPCError({ code: "FORBIDDEN", message: "본인이 쓴 댓글만 삭제할 수 있습니다." });
       }
       deleteComment(input.id);
+      log.invalidate("revalidateTag:expire0", [commentsTag(comment.postId)]);
       revalidateTag(commentsTag(comment.postId), { expire: 0 }); // 이 글의 댓글 캐시만 무효화. 다른 글은 그대로
       return { ok: true };
     }),
