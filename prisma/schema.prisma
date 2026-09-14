@@ -23,9 +23,10 @@ model User {
   passwordHash String   @map("password_hash")
   createdAt    String   @default(dbgenerated("(datetime('now'))")) @map("created_at")
 
-  posts    Post[]
-  comments Comment[]
-  apiKeys  ApiKey[]
+  posts         Post[]
+  comments      Comment[]
+  apiKeys       ApiKey[]
+  refreshTokens RefreshToken[]
 
   @@map("users")
 }
@@ -85,4 +86,23 @@ model ApiKey {
 
   @@index([userId], map: "idx_api_keys_user")
   @@map("api_keys")
+}
+
+// 공개 API 의 리프레시 토큰 (main 의 schema.ts refresh_tokens 와 같은 테이블). 자세한 설명은 src/lib/refresh-tokens.ts.
+// 액세스 토큰(JWT)과 달리 서버에 저장한다: 행이 있어야 유효하므로 로그아웃·재사용 감지 때 즉시 무효화할 수 있다.
+model RefreshToken {
+  id        Int     @id @default(autoincrement())
+  userId    Int     @map("user_id")
+  familyId  String  @map("family_id") // 로그인 한 번 = 가족 하나. 회전으로 만든 새 토큰도 같은 값을 물려받는다
+  tokenHash String  @unique @map("token_hash") // 원문은 저장하지 않는다. SHA-256 해시만 (API 키와 같은 원칙)
+  expiresAt String  @map("expires_at") // 만료 시각. 가족 전체가 같은 값을 공유한다 (로그인 시점 + 30일, 절대 수명)
+  usedAt    String? @map("used_at") // 회전으로 소비된 시각. NULL 이 아닌 토큰이 다시 오면 "재사용" → 가족 전체 폐기
+  revokedAt String? @map("revoked_at") // 폐기 시각 (로그아웃, 재사용 감지). NULL 이 아니면 거부
+  createdAt String  @default(dbgenerated("(datetime('now'))")) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([familyId], map: "idx_refresh_tokens_family")
+  @@index([userId], map: "idx_refresh_tokens_user")
+  @@map("refresh_tokens")
 }

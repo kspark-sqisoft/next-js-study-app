@@ -21,6 +21,7 @@ export type ApiErrorCode =
   | "bad_request"
   | "validation_failed"
   | "unauthorized"
+  | "refresh_token_reused"
   | "forbidden"
   | "not_found"
   | "conflict"
@@ -32,6 +33,7 @@ const STATUS_BY_CODE: Record<ApiErrorCode, number> = {
   bad_request: 400,
   validation_failed: 422,
   unauthorized: 401,
+  refresh_token_reused: 401, // 401 이지만 code 로 구분한다: 클라이언트는 저장해 둔 토큰을 모두 버리고 사용자에게 알려야 한다
   forbidden: 403,
   not_found: 404,
   conflict: 409,
@@ -64,6 +66,7 @@ export class ApiError extends Error {
 export const badRequest = (message: string) => new ApiError("bad_request", message);
 export const unauthorized = (message = "인증이 필요합니다. Authorization: Bearer <토큰> 헤더를 보내세요.") =>
   new ApiError("unauthorized", message);
+export const refreshTokenReused = (message: string) => new ApiError("refresh_token_reused", message);
 export const forbidden = (message = "이 리소스에 대한 권한이 없습니다.") => new ApiError("forbidden", message);
 export const notFound = (message = "리소스를 찾을 수 없습니다.") => new ApiError("not_found", message);
 export const conflict = (message: string) => new ApiError("conflict", message);

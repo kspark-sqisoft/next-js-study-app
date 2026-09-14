@@ -1,13 +1,14 @@
 // POST /api/v1/auth/register — 계정 생성
 //
 // 화면의 회원가입(src/app/(auth)/actions.ts)과 같은 일을 하지만 결과가 다르다.
-// 화면은 세션 쿠키를 굽고 /posts 로 리다이렉트하고, API 는 액세스 토큰을 JSON 으로 돌려준다.
+// 화면은 세션 쿠키를 굽고 /posts 로 리다이렉트하고, API 는 액세스 토큰 + 리프레시 토큰을 JSON 으로 돌려준다
+// (로그인 POST /auth/token 과 같은 모양이라 클라이언트는 둘을 같은 코드로 처리한다).
 // 검증 규칙과 비밀번호 해시 방식은 완전히 같은 코드를 쓴다.
-import { ACCESS_TOKEN_TTL_SECONDS, issueAccessToken } from "@/lib/api/auth";
+import { tokenResponse } from "@/lib/api/auth";
 import { conflict, ok, parseJsonBody } from "@/lib/api/http";
 import { apiRoute } from "@/lib/api/route";
-import { serializeUser } from "@/lib/api/serialize";
 import { hashPassword } from "@/lib/password";
+import { issueRefreshToken } from "@/lib/refresh-tokens";
 import { registerSchema } from "@/lib/schemas/api";
 import { createUser, findUserWithHashByEmail } from "@/lib/users";
 
@@ -22,12 +23,7 @@ export const POST = apiRoute(async ({ request }) => {
   const user = await createUser(name, email, await hashPassword(password));
 
   return ok(
-    {
-      user: serializeUser(user),
-      accessToken: await issueAccessToken(user.id),
-      tokenType: "Bearer",
-      expiresIn: ACCESS_TOKEN_TTL_SECONDS,
-    },
+    await tokenResponse(user, await issueRefreshToken(user.id)),
     201, // 201 Created: 새 리소스가 만들어졌다
   );
 });
