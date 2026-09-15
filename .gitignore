@@ -54,3 +54,6 @@ next-env.d.ts
 
 # 업로드된 이미지 (학습용 로컬 저장소)
 /data/uploads/
+
+# Playwright MCP 스크린샷 (로컬 확인용)
+.playwright-mcp/
