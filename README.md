@@ -56,6 +56,8 @@ npm run db:seed -- --reset   # 샘플 데이터로 초기화
 같은 Wi-Fi 의 휴대폰에서 `http://<이 컴퓨터의 LAN IP>:3000` 으로 개발 서버를 열 수 있다. `next dev` 가 시작할 때 `Network:` 줄에 그 주소가 찍힌다.
 Next.js 16 개발 서버는 `next.config.ts` 의 `allowedDevOrigins` 에 없는 호스트의 요청을 막아 hydration 이 되지 않으므로(버튼·토글·클라이언트 페칭이 전부 죽는다), 사설 IP 대역(`192.168.*.*`, `10.*.*.*` 등)과 `*.local` 을 허용해 두었다. 대역이 다르면 그 목록에 추가하고 `npm run dev` 를 다시 시작한다. `npm run build && npm start` 로 띄운 프로덕션 서버에는 이 제한이 없다.
 
+**상태 표시줄(시계·배터리 영역) 색.** 안드로이드 크롬과 iOS 18 까지의 Safari 는 `<meta name="theme-color">` 를 읽으므로 `theme-color-script.tsx`(hydration 전)와 `theme-color-sync.tsx`(토글 뒤)가 테마에 맞춰 그 값을 바꾼다. iOS 26 부터 Safari 는 이 메타를 무시하고, 화면 위쪽 가장자리에 붙은 sticky/fixed 요소, 즉 사이트 헤더의 `background-color` 를 직접 읽어 칠한다. 이 값은 페이지 로드·주소창 크기 변화·fixed 요소의 추가/제거 때만 다시 읽고 색만 바뀌면 다시 읽지 않는다. 그래서 헤더 배경은 블러 없는 불투명 색으로 두고(블러가 있으면 "색 없음" 으로 보고 로드 때 배경으로 고정한다), 테마가 바뀌면 `theme-color-sync.tsx` 가 보이지 않는 1px fixed 요소를 잠깐 넣었다 빼서 다시 읽게 한다.
+
 ## 용어 사전 (모르는 말이 나오면 여기로)
 
 이 문서에는 낯선 용어가 많이 나온다. 각 용어를 **쉬운 말 한두 줄** 로 풀고, 자세한 설명이 있는 절 번호를 붙였다. 본문을 읽다 막히면 이 표로 돌아온다.
@@ -2284,7 +2286,7 @@ src/
     site-header.tsx # 상단 헤더 (브랜드, 섹션 네비, 테마 토글, UserMenu)
     nav-link.tsx    # usePathname 으로 현재 섹션 표시 (클라이언트)
     theme-provider.tsx, theme-toggle.tsx  # next-themes 라이트/다크 (클라이언트)
-    theme-color-sync.tsx, theme-color-script.tsx  # 테마에 맞춰 theme-color 메타 갱신 (모바일 상태 표시줄 색). script 는 hydration 전, sync 는 토글 뒤
+    theme-color-sync.tsx, theme-color-script.tsx  # 테마에 맞춰 theme-color 메타 갱신 (모바일 상태 표시줄 색). script 는 hydration 전, sync 는 토글 뒤. iOS 26 Safari 는 메타 대신 헤더 배경색을 읽으므로 sync 가 다시 읽게 하는 신호도 보낸다
   lib/
     schema.ts       # 테이블 정의 + 수동 마이그레이션 (앱과 스크립트가 공유)
     schemas/        # Zod 검증 스키마 (post, auth, comment, api)
