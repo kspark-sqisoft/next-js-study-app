@@ -32,6 +32,7 @@
 | 부록 B | Server Action, 제대로 이해하기 | — | stub 과 POST, 부르는 방법 세 가지, 무효화, 공개 엔드포인트로서의 보안 |
 | 부록 C | 페이지가 뜨기까지: prefetch, 클라이언트 이동, RSC payload, 스트리밍, hydration | — | 하드/소프트 내비게이션, 정적 셸, PPR, 클라이언트 캐시 |
 | 부록 D | 용어 사전 | — | 이 책에 나온 말 전부, 한 줄 정의와 위치 |
+| 부록 E | 렌더링 방식과 캐시 4층 | — | CSR·SSR·SSG·ISR·PPR, RSC 와의 관계, 요청 메모이제이션·데이터 캐시·풀 라우트 캐시·라우터 캐시, 옛 API 대응 |
 
 ---
 
@@ -1127,6 +1128,8 @@ flowchart LR
 
 ### 13-2. 렌더링 방식 지도
 
+네 방식(CSR·SSR·SSG·ISR)의 뜻, RSC 와의 관계, 캐시 4층(요청 메모이제이션·데이터 캐시·풀 라우트 캐시·라우터 캐시)은 **부록 E** 에 있다.
+
 | 페이지 | 방식 | 근거 |
 | --- | --- | --- |
 | `/` | 정적 (SSG) | 요청 데이터 없음 |
@@ -1821,6 +1824,12 @@ flowchart TB
 | read-your-own-writes | 내가 방금 쓴 것이 바로 보이는 것. `updateTag` 가 보장 | 4장 |
 | react `cache()` | 한 요청 안에서 같은 함수 호출을 한 번만 실행 (`getCurrentUser`) | 6장 |
 | `generateStaticParams` | 빌드 때 미리 만들 동적 세그먼트 값 목록 | 5장 |
+| 요청 메모이제이션 (Request Memoization) | 한 요청(렌더) 동안 같은 함수 호출을 한 번만 실행. React `cache()`, `fetch` GET 자동 | 부록 E-3 |
+| 데이터 캐시 (Data Cache) | 옛 이름. 지금은 `"use cache"` 함수 결과 저장소 (`cacheLife`, `cacheTag`) | 부록 E-3 |
+| 풀 라우트 캐시 (Full Route Cache) | 옛 이름. 지금은 프리렌더된 정적 셸과 ISR 로 만든 페이지 | 부록 E-3 |
+| 라우터 캐시 (Router Cache) | 옛 이름. 지금은 Client Cache. 브라우저가 보관하는 세그먼트 RSC payload | 부록 C-5, E-3 |
+| 정적 렌더링 / 동적 렌더링 | 빌드 때 프리렌더 가능 / 요청이 있어야 렌더. Next 16 은 컴포넌트 단위로 판단 | 부록 E-1 |
+| `router.refresh()` | 라우터 캐시를 버리고 현재 경로를 서버에서 다시 받음 (이 앱은 안 씀) | 부록 E-4 |
 
 ### 데이터와 폼
 
@@ -1900,6 +1909,153 @@ flowchart TB
 | 캐시 두 층 | 서버 `"use cache"` 와 브라우저 QueryClient. 변경 뒤 둘 다 지워야 함 | 7장 |
 | `createCaller` | HTTP 없이 프로시저를 함수처럼 부르는 테스트용 호출자 | 11장 |
 | `/api/trpc/[trpc]` | 모든 브라우저 tRPC 호출의 HTTP 입구 (일반 Route Handler) | 12장 |
+
+---
+
+## 부록 E. 렌더링 방식과 캐시 4층: CSR · SSR · SSG · ISR · RSC, 요청 메모이제이션 · 데이터 캐시 · 풀 라우트 캐시 · 라우터 캐시
+
+이 용어들은 두 세대의 문서에서 왔다. **렌더링 방식 네 가지** 는 "HTML 을 언제 만드느냐" 로 페이지를 분류하던 오래된 구분이고, **캐시 4층** 은 Next.js 13~15 App Router 문서가 쓰던 이름이다. Next.js 16 의 Cache Components 에서는 이름이 바뀌거나 하나로 합쳐졌다. 옛 이름으로 검색하면 나오는 글을 이 앱에 대응시킬 수 있도록 **옛 이름, 새 이름, 이 앱의 실제 파일** 을 나란히 적는다.
+
+### E-1. 렌더링 방식 다섯 가지
+
+| 방식 | HTML 을 언제 만드나 | Next.js 16 용어 | 코드에서 결정하는 것 | 이 앱의 예 | 빌드 표 |
+| --- | --- | --- | --- | --- | --- |
+| **SSG** (Static Site Generation) | 빌드 때 1회 | 정적 렌더링, 프리렌더 | 요청 시점 API 를 **안 읽는다** | 홈 카드, `/api/v1`, `/api/v1/openapi.json`, `generateStaticParams` 가 미리 만든 `/posts/1`, `/posts/2` | `○` 또는 `◐` 의 셸 부분 |
+| **SSR** (Server-Side Rendering) | 요청마다 | 동적 렌더링 | `connection()`, `cookies()`, `params`, `searchParams` 를 읽는다 | `/todos` 목록, `UserMenu`, `PostOwnerActions`, `OtherPosts` | `◐` 의 Suspense 안쪽, `ƒ` |
+| **CSR** (Client-Side Rendering) | 브라우저에서 JS 실행 후 | 클라이언트 컴포넌트 + 브라우저 페칭 | `"use client"` + `useEffect` / SWR / TanStack Query | `/client-fetch` 의 검색 결과, `/feed` 의 2페이지부터, 최근 본 글(`ssr: false`) | `◐` (뼈대만 정적) |
+| **ISR** (Incremental Static Regeneration) | 빌드(또는 첫 요청) 때 만들고, 수명이 지나거나 태그로 지우면 다시 | `"use cache"` + `cacheLife` + `cacheTag` | 캐시 함수 | `/posts` 목록(minutes), `/posts/[id]` 본문(hours), `/releases`(hours) | `◐` + `Revalidate 1m / 1h` |
+| **PPR + 스트리밍** (Partial Prerendering) | 한 페이지 안에서 위 넷을 섞는다 | Cache Components 의 기본 동작 | `<Suspense>` 경계 | 거의 모든 페이지 | `◐` |
+
+**"정적 렌더링 / 동적 렌더링"** 은 Next.js 가 쓰는 이름이다. 정적 = 빌드 때 프리렌더할 수 있음, 동적 = 요청이 있어야 렌더할 수 있음. Next.js 16 은 이것을 페이지 단위가 아니라 **컴포넌트 단위** 로 본다. 그래서 한 페이지가 `◐` 가 된다.
+
+한 페이지 안에서 어떻게 섞이는지 `/posts/3` 으로 보면:
+
+```mermaid
+flowchart TB
+  subgraph PAGE["/posts/3 한 페이지"]
+    SHELL["정적 셸 — SSG<br/>레이아웃, 네비, 스켈레톤<br/>(빌드 때 HTML)"]
+    BODY["글 본문 — ISR<br/>getPost(3) 'use cache' hours<br/>(첫 요청 때 만들고 캐시)"]
+    OWN["수정·삭제 버튼 — SSR<br/>getCurrentUser() 요청마다"]
+    CMT["댓글 — ISR + SSR<br/>목록은 캐시, 내 댓글 표시는 요청마다"]
+    OTHER["다른 글 — SSR<br/>connection() + 1.5초"]
+    RV["최근 본 글 — CSR<br/>next/dynamic ssr:false, localStorage"]
+  end
+  SHELL --> BODY & OWN & CMT & OTHER & RV
+```
+
+### E-2. RSC 는 렌더링 "방식" 이 아니다
+
+자주 섞이는 두 축이다. **RSC(React Server Components)** 는 "이 컴포넌트의 코드가 어디서 실행되는가" 의 문제(부록 A)이고, **SSR/SSG/CSR** 은 "HTML 을 언제 만드는가" 의 문제다. 서로 독립이라 조합이 생긴다.
+
+| | 빌드 때 (SSG) | 요청 때 (SSR) | 브라우저에서 (CSR) |
+| --- | --- | --- | --- |
+| **서버 컴포넌트** | 홈 카드, 정적 셸 | `/todos` 목록, `UserMenu` | 불가능 (브라우저에 코드가 없다) |
+| **클라이언트 컴포넌트** | 초기 HTML 은 빌드 때 그려짐 (`TodoItem` 의 첫 모습도 셸에 있음) | 초기 HTML 은 요청 때 그려짐 | hydration 뒤 상호작용, `useEffect` 페칭, `ssr: false` |
+
+- "서버 컴포넌트 = SSR" 이 아니다. 홈 카드는 서버 컴포넌트이면서 SSG 다.
+- "클라이언트 컴포넌트 = CSR" 도 아니다. `TodoItem` 은 서버에서 한 번 HTML 로 그려진다(SSR). 순수 CSR 은 `ssr: false` 로 로드하는 최근 본 글뿐이다.
+- **RSC payload** 는 RSC 의 렌더 결과를 담은 데이터 형식이다 (부록 C-2). 캐시 층에서도 이 형식으로 저장된다.
+
+### E-3. 캐시 4층: 옛 이름 ↔ Next.js 16 ↔ 이 앱
+
+요청 하나가 지나는 순서대로 네 층이 있다. 위에서 걸리면 아래로 내려가지 않는다.
+
+```mermaid
+flowchart TB
+  B["브라우저"]
+  subgraph L4["④ 라우터 캐시 → Client Cache (브라우저 메모리)"]
+    RC{"방문·prefetch 한 세그먼트의<br/>RSC payload 가 있고 신선한가?"}
+  end
+  subgraph SRV["서버"]
+    subgraph L3["③ 풀 라우트 캐시 → 프리렌더된 정적 셸 (빌드 산출물, 디스크/CDN)"]
+      FR["경로의 HTML + RSC payload<br/>Suspense 안쪽은 비어 있음"]
+    end
+    subgraph L1["① 요청 메모이제이션 → React cache(), fetch 중복 제거 (한 요청 동안만)"]
+      RM["같은 함수·같은 인자는 한 번만 실행<br/>getCurrentUser() 를 네 곳이 불러도 1회"]
+    end
+    subgraph L2["② 데이터 캐시 → 'use cache' 결과 저장소 (프로세스 메모리, cacheLife 만큼)"]
+      DC{"getPost(3) 결과가<br/>저장돼 있고 안 지워졌나?"}
+    end
+    DB[("SQLite / 외부 API")]
+  end
+  B --> RC
+  RC -->|"있음"| SHOW["즉시 표시"]
+  RC -->|"없음"| FR --> RM --> DC
+  DC -->|"HIT"| OUT["결과 → 스트리밍"]
+  DC -->|"MISS"| DB --> SAVE["저장"] --> OUT
+  OUT --> B
+```
+
+| | ① 요청 메모이제이션 | ② 데이터 캐시 | ③ 풀 라우트 캐시 | ④ 라우터 캐시 |
+| --- | --- | --- | --- | --- |
+| **옛 이름** (Next 13~15 문서) | Request Memoization | Data Cache | Full Route Cache | Router Cache |
+| **Next.js 16 이름** | memoization (React `cache()`, `fetch` GET 자동 중복 제거) | `"use cache"` 결과 (cache store) | 프리렌더 (정적 셸), ISR 로 만든 페이지 | Client Cache |
+| **무엇을** | 한 번의 렌더 동안 같은 함수 호출의 반환값 | 캐시 함수의 반환값 (RSC payload 로 직렬화) | 경로의 HTML + RSC payload | 방문·prefetch 한 세그먼트의 RSC payload |
+| **어디에** | 서버 메모리, 요청이 끝나면 사라짐 | 서버 프로세스 메모리 (기본). `"use cache: remote"` 면 공유 저장소 | `.next/` 빌드 산출물, 디스크 또는 CDN | 브라우저 탭 메모리 |
+| **수명** | 요청 하나 | `cacheLife` (minutes, hours …) | 재빌드까지, ISR 이면 수명까지 | 정적 세그먼트 5분, 동적 0초 (`staleTimes`), 뒤로/앞으로는 별도 유지 |
+| **지우는 법** | 없음 (자동) | `updateTag`, `revalidateTag`, 시간 경과 | 재빌드, ISR 재생성 | 새로고침, `router.refresh()`, Server Action 응답이 새 트리를 주면 그 세그먼트 |
+| **이 앱에서** | `getCurrentUser` (dal.ts), `createTRPCContext` (trpc/init.ts) | `getPostsPage`, `getPost`, `getCommentThreads`, `getNextReleases` | 모든 `◐` 페이지의 셸, `/api/v1` (`○`), `generateStaticParams` 가 만든 `/posts/1`, `/posts/2` | `<Link>` prefetch, 뒤로 가기가 즉시인 이유 (부록 C-5) |
+| **확인하는 법** | `[session] getCurrentUser()` 로그가 한 요청에 한 번만 | `[cache] MISS` 유무, `cachedAt` 시각 | `npm run build` 표의 `○`/`◐`, `.next/server/app/` 의 `.html`·`.rsc` 파일 | 프로덕션에서 Network 탭의 `_rsc` 요청이 있는지 없는지 |
+| **이 책의 어디** | 6장 | 4장 | 2장, 부록 C-3 | 부록 C-5, C-6 |
+
+한 가지 주의. `getPost(3)` 은 `generateMetadata` 와 `PostDetail` 이 **각각** 부르지만 몸체는 한 번만 실행된다(5장 로그). 이것은 ①이 아니라 ②의 효과다. `"use cache"` 함수는 같은 인자면 같은 캐시 키라서 두 번째 호출이 곧바로 HIT 이 된다. React `cache()` 를 따로 감싸지 않아도 되는 이유다.
+
+이 앱이 쓰는 캐시 중 **4층 모델에 없는 것** 도 셋 있다.
+
+| 캐시 | 무엇을 | 어디 |
+| --- | --- | --- |
+| SWR / TanStack Query 캐시 (`staleTime`) | 브라우저가 `fetch` 한 API 응답 | 9장. 댓글 목록도 이 캐시에 있다 (7장). ④ 라우터 캐시와는 다른 것이다. ④는 페이지 조각, 이것은 쿼리 결과 |
+| HTTP 캐시 (`Cache-Control: immutable`) | 업로드 이미지 파일 | 8장 |
+| localStorage (zustand persist) | 최근 본 글 | 5장 |
+
+### E-4. 무효화가 어느 층까지 닿나
+
+| 한 일 | ① 메모 | ② 데이터 캐시 | ③ 정적 셸 | ④ 라우터 캐시 |
+| --- | --- | --- | --- | --- |
+| `updateTag("posts")` (Server Action) | — | **지움** | 셸은 그대로. Suspense 안쪽이 다음 요청에서 새로 만들어짐 | 액션 응답의 새 RSC payload 로 **현재 페이지** 갱신 |
+| `revalidateTag("posts", "max")` | — | 낡음 표시, 백그라운드 재생성 | 같음 | 같음 |
+| `revalidateTag(tag, { expire: 0 })` (Route Handler) | — | **지움** | 같음 | 없음 (API 호출이라 브라우저 트리를 모름). 화면은 다음 이동·새로고침 때 |
+| `revalidatePath("/todos")` | — | 그 경로의 캐시 | 그 경로 다음 요청에서 재렌더 | 액션이면 현재 페이지 갱신 |
+| `cacheLife` 시간 경과 | — | 다음 요청에서 MISS | ISR 이면 백그라운드 재생성 | `staleTimes` 와 별개 |
+| 새로고침 (하드 내비게이션) | 새 요청 | 그대로 | 그대로 | **전부 버림** |
+| 재배포 (`next build`) | — | **전부 새로** (캐시 키에 빌드 ID 포함) | **전부 새로** | 새 빌드 ID 라 무효 |
+
+### E-5. 옛 API 를 이 앱에서는 무엇으로 쓰나
+
+옛 글이나 다른 프로젝트에서 보게 될 API 와 이 앱의 대응이다. Cache Components 를 켜면 왼쪽 것들은 대부분 **빌드 에러** 가 된다.
+
+| 옛 API (Next 13~15) | 이 앱 (Next 16, Cache Components) | 어디 |
+| --- | --- | --- |
+| `export const dynamic = "force-dynamic"` | 필요 없음. 기본이 동적. 빌드 때 굳지 않게 하려면 `await connection()` | `lib/todos.ts` |
+| `export const dynamic = "force-static"` | 제거. 요청 시점 API 를 안 읽으면 자동으로 셸에 들어감 | `app/page.tsx` |
+| `export const revalidate = 3600` | `"use cache"` + `cacheLife("hours")` | `lib/posts.ts` |
+| `fetch(url, { next: { revalidate: 3600, tags: ["x"] } })` | `"use cache"` 함수 안에서 `fetch` + `cacheLife` + `cacheTag` | `lib/github.ts` |
+| `fetch(url, { cache: "force-cache" })`, `export const fetchCache` | `"use cache"`. Next 16 에서는 `fetch` 도 기본적으로 캐시하지 않는다 | `lib/github.ts` |
+| `unstable_cache(fn, keys, { tags })` | `"use cache"` (함수 인자가 곧 키) | `lib/posts.ts` |
+| `revalidateTag(tag)` (인자 하나) | `updateTag(tag)` 또는 `revalidateTag(tag, "max")`. Route Handler 는 `revalidateTag(tag, { expire: 0 })` | `posts/actions.ts`, `api/v1/posts/route.ts` |
+| `unstable_noStore()` | `await connection()` | `lib/todos.ts` |
+| `experimental.staleTimes` (라우터 캐시 수명) | 그대로 (실험적). 이 앱은 기본값 | `next.config.ts` 에 없음 |
+
+### E-6. 이 앱에서 직접 확인하기
+
+| 실험 | 보이는 것 | 어느 층 |
+| --- | --- | --- |
+| `lib/todos.ts` 의 `await connection()` 을 지우고 `npm run build` | `/todos` 가 `◐` 에서 `○ Static` 으로. DB 를 바꿔도 화면 그대로 | ③ (SSG 로 굳음) |
+| `/posts` 새로고침 반복 | 캐시 생성 시각이 그대로. 1분 뒤 첫 요청에서 바뀜 | ② (ISR) |
+| "즉시 갱신" 버튼 | 시각이 바로 바뀜. 터미널에 `[cache] MISS` | ② `updateTag` |
+| "백그라운드 갱신" 버튼 → 새로고침 두 번 | 첫 번째는 옛 시각, 두 번째부터 새 시각 | ② stale-while-revalidate |
+| 로그인 후 아무 페이지나 한 번 열기 | `[session] getCurrentUser()` 가 한 번만 찍힘 (네 컴포넌트가 부르는데도) | ① |
+| `npm run build && npm run start` 후 Network 탭 | 홈에서 Link 가 보이는 순간 `_rsc` 요청. 클릭 시 즉시 이동 | ④ + ③ |
+| 목록 → 상세 → 뒤로 가기 | 서버 요청 없이 즉시 복원 | ④ |
+| `ls .next/server/app/posts/` (빌드 후) | `1.html`, `1.rsc` 등 미리 만든 파일 | ③ |
+
+### E-7. 스스로 확인하기
+
+1. `/posts` 는 SSG 인가 SSR 인가 ISR 인가? → 셸은 SSG, 목록은 ISR(`"use cache"` minutes), 글쓰기 폼 영역은 SSR(세션). 한 페이지 안에 셋이 섞여 있어 빌드 표에는 `◐` 다.
+2. `getCurrentUser()` 를 네 컴포넌트가 부르는데 DB 조회는 몇 번? → 한 번. ① 요청 메모이제이션(React `cache()`).
+3. `updateTag("posts")` 를 했는데 다른 탭의 화면은 왜 안 바뀌나? → ②는 지워졌지만 그 탭의 ④는 그대로다. 그 탭이 이동하거나 새로고침해야 새 값을 받는다.
+4. 배포를 새로 했더니 캐시가 전부 사라졌다. 버그인가? → 아니다. 캐시 키에 빌드 ID 가 들어 있어 배포마다 새로 시작한다.
+5. RSC 를 쓰면 SSR 인가? → 다른 축이다. E-2.
 
 ---
 
