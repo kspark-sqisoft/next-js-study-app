@@ -28,6 +28,7 @@
 | 11 | 테스트: 어디서 무엇을 확인하나 | `npm test`, `npm run test:e2e` | 단위/컴포넌트/E2E, mock, **마이그레이션 SQL 로 임시 DB** |
 | 12 | Prisma 층 자세히 보기 | `schema.prisma` 에서 쿼리까지 | 모델, `@map`, generate, migrate, SQL ↔ Prisma 대응표 |
 | 13 | 한눈에 보는 요약 | — | 무효화 지도, 개념 색인 |
+| 부록 A | 서버 컴포넌트와 클라이언트 컴포넌트, 제대로 이해하기 | — | 경계, 직렬화, 샌드위치 패턴, 오해 세 가지 |
 
 ---
 
@@ -264,7 +265,7 @@ sequenceDiagram
 
 ### 💡 개념
 
-**서버 컴포넌트와 클라이언트 컴포넌트.** 파일 맨 위에 `"use client"` 가 없으면 서버 컴포넌트다. 서버에서만 실행되므로 Prisma 를 직접 부를 수 있고, 그 코드는 브라우저로 전송되지 않는다.
+**서버 컴포넌트와 클라이언트 컴포넌트.** 파일 맨 위에 `"use client"` 가 없으면 서버 컴포넌트다. 서버에서만 실행되므로 Prisma 를 직접 부를 수 있고, 그 코드는 브라우저로 전송되지 않는다. 이 구분이 잘 안 와닿으면 **부록 A** 를 먼저 읽고 돌아와도 된다.
 
 ```
 서버 컴포넌트 (기본)                  클라이언트 컴포넌트 ("use client")
@@ -1348,6 +1349,187 @@ flowchart LR
 
 **Q. 액션에서 `redirect()` 뒤의 코드가 실행되나?**
 안 된다. 예외를 던지는 방식이다.
+
+---
+
+## 부록 A. 서버 컴포넌트와 클라이언트 컴포넌트, 제대로 이해하기
+
+이름 때문에 오해가 생기기 쉬운 개념이다. "서버 컴포넌트는 서버에서, 클라이언트 컴포넌트는 브라우저에서 실행된다" 라고 외우면 절반은 틀린다. 질문을 바꿔야 한다. **"이 컴포넌트의 코드가 브라우저로 가는가?"** 이것 하나로 대부분이 설명된다.
+
+### A-1. 한 문장씩
+
+| | 서버 컴포넌트 | 클라이언트 컴포넌트 |
+| --- | --- | --- |
+| 표시 | 파일 맨 위에 아무것도 없음 (**기본값**) | 파일 맨 위에 `"use client"` |
+| 어디서 실행되나 | **서버에서만**. 브라우저는 결과만 받는다 | **서버에서 한 번, 브라우저에서 또 한 번** |
+| 브라우저로 가는 것 | 렌더링 결과 (HTML 조각과 RSC payload) | 결과 + **JS 코드 자체** |
+| 비유 | 주방에서 완성해 내보내는 요리. 손님은 레시피를 모른다 | 테이블 위의 버튼과 리모컨. 손님이 직접 누른다 |
+| 이 프로젝트에서 | `todos/page.tsx`: getTodos() 로 Prisma 를 읽어 목록을 그린다 | `todos/todo-item.tsx`: 체크박스 클릭에 반응한다 |
+
+### A-2. 무엇이 브라우저로 가나
+
+```mermaid
+flowchart LR
+  subgraph SRV["서버"]
+    SC["서버 컴포넌트<br/>todos/page.tsx<br/>getTodos() 로 Prisma → JSX"]
+    CCS["클라이언트 컴포넌트<br/>todo-item.tsx<br/>(서버에서도 한 번 그림 = SSR)"]
+  end
+  subgraph OUT["브라우저로 전송되는 것"]
+    HTML["HTML<br/>첫 화면 (사진)"]
+    RSC["RSC payload<br/>서버 컴포넌트의 렌더 결과 트리<br/>+ '이 자리에 어떤 클라이언트 컴포넌트를 어떤 props 로'"]
+    JS["JS 번들<br/>클라이언트 컴포넌트 코드만"]
+  end
+  subgraph BR["브라우저"]
+    H["hydration<br/>사진 위에 이벤트·상태 붙이기"]
+    RUN["이후 클릭·입력·useEffect 는<br/>브라우저에서 실행"]
+  end
+  SC --> HTML
+  SC --> RSC
+  CCS --> HTML
+  CCS -.->|"코드"| JS
+  HTML & RSC & JS --> H --> RUN
+```
+
+- `todos/page.tsx` 의 `getTodos()` 와 그 안의 Prisma 코드는 브라우저에 **없다**. 개발자 도구 Sources 탭에서 검색해도 안 나온다.
+- `todo-item.tsx` 의 `handleToggle` 은 브라우저에 **있다**. 그래야 클릭에 반응한다.
+- 클라이언트 컴포넌트도 서버에서 한 번 HTML 로 그려진다. 그래서 첫 화면이 빈 화면이 아니다. 이것이 SSR 이다.
+
+### A-3. 시간 순서로 보기
+
+```
+서버                                          브라우저
+──────────────────────────────────────        ──────────────────────────────────────
+① 서버 컴포넌트 실행 (Prisma 읽기, await)
+② 클라이언트 컴포넌트도 HTML 로 한 번 그림
+   (useState 초기값으로. useEffect 는 실행 안 함)
+③ HTML + RSC payload 전송 ──────────────▶     ④ HTML 표시. 보이지만 아직 클릭은 안 됨
+                                              ⑤ 클라이언트 컴포넌트 JS 다운로드
+                                              ⑥ hydration: 같은 컴포넌트를 브라우저에서
+                                                 다시 실행해 이벤트 핸들러를 붙임
+                                              ⑦ useEffect 실행. 이제 클릭·입력이 동작
+```
+
+⑥ 에서 서버가 그린 HTML(②) 과 브라우저가 그린 결과가 **같아야** 한다. 다르면 "hydration mismatch" 에러다. 그래서 `localStorage` 처럼 브라우저에만 있는 값은 ②에서 읽으면 안 되고 ⑦(`useEffect`) 에서 읽는다. `components/store-hydrator.tsx` 가 정확히 그렇게 한다.
+
+### A-4. 이름이 만드는 오해 세 가지
+
+| 오해 | 실제 | 이 프로젝트에서 확인 |
+| --- | --- | --- |
+| "클라이언트 컴포넌트는 브라우저에서만 실행된다" | 서버에서도 한 번 실행된다 (SSR). 렌더 중에 `window` 를 읽으면 서버에서 터진다 | `posts/[id]/recently-viewed.tsx` 는 그래서 `next/dynamic` 의 `ssr: false` 로만 로드한다 |
+| "서버 컴포넌트 = SSR" | 다른 개념이다. 서버 컴포넌트는 "코드가 브라우저로 안 감", SSR 은 "클라이언트 컴포넌트를 서버에서 HTML 로 미리 그림" | `todo-item.tsx` 는 클라이언트 컴포넌트이면서 SSR 된다 |
+| "`"use client"` 는 그 파일만 클라이언트로 만든다" | **경계** 다. 그 파일이 import 하는 모듈도 전부 클라이언트 번들로 끌려간다 | `todo-item.tsx` 에서 `@/lib/prisma` 를 import 하면 `server-only` 가 빌드를 막는다 |
+
+### A-5. 어느 쪽으로 만들까
+
+```mermaid
+flowchart TB
+  Q1{"onClick, onChange 같은<br/>이벤트 핸들러가 필요한가?"}
+  Q2{"useState, useEffect, useRef<br/>같은 훅이 필요한가?"}
+  Q3{"window, localStorage,<br/>IntersectionObserver 같은<br/>브라우저 API 가 필요한가?"}
+  Q4{"Prisma, 파일, 비밀 키,<br/>cookies() 도 함께 필요한가?"}
+  C["'use client' 컴포넌트"]
+  S["서버 컴포넌트 (기본값)"]
+  SPLIT["둘로 나눈다:<br/>서버 컴포넌트가 데이터를 읽어 props 로 넘기고,<br/>클라이언트 컴포넌트가 상호작용을 맡는다"]
+  Q1 -->|"예"| Q4
+  Q1 -->|"아니오"| Q2
+  Q2 -->|"예"| Q4
+  Q2 -->|"아니오"| Q3
+  Q3 -->|"예"| Q4
+  Q3 -->|"아니오"| S
+  Q4 -->|"예"| SPLIT
+  Q4 -->|"아니오"| C
+```
+
+**기본값은 서버 컴포넌트다.** 필요한 것이 생겼을 때만 `"use client"` 를 붙인다. 붙이더라도 **가능한 한 트리의 아래쪽, 작은 조각** 에 붙인다. 페이지 전체에 붙이면 페이지의 모든 코드가 브라우저로 간다. `todos/page.tsx` 가 서버로 남고 `TodoItem`, `AddTodoForm` 만 클라이언트인 이유다.
+
+### A-6. 할 수 있는 것, 없는 것
+
+| | 서버 컴포넌트 | 클라이언트 컴포넌트 |
+| --- | --- | --- |
+| `async` / `await` 로 데이터 읽기 | ✅ `await getTodos()` | ❌ (`use()` 나 SWR, TanStack Query 로) |
+| Prisma, 파일 시스템, 환경변수 비밀 | ✅ | ❌ |
+| `cookies()`, `headers()` | ✅ (Suspense 안에서) | ❌ |
+| `useState`, `useEffect`, `useRef` | ❌ | ✅ |
+| `onClick`, `onChange`, `onSubmit` | ❌ | ✅ |
+| `window`, `localStorage`, 브라우저 API | ❌ | ✅ (`useEffect` 안에서) |
+| Context Provider 제공 | ❌ | ✅ |
+| 다른 서버 컴포넌트 import | ✅ | ❌ (import 하면 그것도 클라이언트가 됨) |
+| 다른 클라이언트 컴포넌트 import | ✅ | ✅ |
+| 서버 컴포넌트를 children 으로 받기 | — | ✅ (A-7) |
+| Server Action 호출 | `<form action={...}>` 으로 | 함수처럼 호출 |
+
+### A-7. 트리 규칙과 샌드위치 패턴
+
+가장 헷갈리는 규칙이다. **"클라이언트 컴포넌트는 서버 컴포넌트를 import 할 수 없다. 하지만 children 으로 받을 수는 있다."**
+
+```mermaid
+flowchart TB
+  subgraph OK1["✅ 서버 → 클라이언트 import"]
+    A1["todos/page.tsx (서버)"] --> B1["TodoItem (클라이언트)"]
+  end
+  subgraph NO["❌ 클라이언트 → 서버 import"]
+    A2["TodoItem (클라이언트)"] -.->|"import 하는 순간<br/>이것도 클라이언트가 됨"| B2["user-menu.tsx (서버)<br/>→ cookies() 못 씀, server-only 빌드 에러"]
+  end
+  subgraph OK2["✅ 샌드위치: 클라이언트가 서버를 children 으로"]
+    A3["(demos)/layout.tsx (서버)"] --> B3["QueryProviders (클라이언트)"]
+    B3 -->|"children"| C3["데모 page.tsx (서버)<br/>서버에서 이미 렌더된 결과가 끼워진다"]
+  end
+```
+
+왜 import 는 안 되고 children 은 되나. import 는 "이 코드를 내 번들에 넣어라" 는 뜻이라 클라이언트 번들에 서버 코드가 들어간다. children 은 "서버가 **이미 렌더링한 결과** 를 이 자리에 끼워라" 는 뜻이라 코드는 안 가고 결과만 간다.
+
+이 프로젝트의 샌드위치:
+
+| 바깥 (서버) | 가운데 (클라이언트) | 안 (children) |
+| --- | --- | --- |
+| `(demos)/layout.tsx` | `QueryProviders` (TanStack Provider) | 각 데모 `page.tsx` (서버) |
+| `posts/@modal/(.)[id]/page.tsx` | `RouteModal` (Dialog) | 글 본문, 이미지, 링크 (서버가 렌더) |
+| `posts/[id]/comments-section.tsx` | `ReplyToggle` (열고 닫기) | `CommentForm` (이것도 클라이언트지만, 부모가 만든 것을 그대로 통과시키는 같은 원리) |
+
+### A-8. props 규칙: 넘길 수 있는 것
+
+서버 컴포넌트가 클라이언트 컴포넌트에 props 를 넘기면 그 값은 네트워크를 건너간다. 그래서 **직렬화할 수 있는 값** 만 된다.
+
+| 넘길 수 있다 | 넘길 수 없다 |
+| --- | --- |
+| 문자열, 숫자, boolean, null | 일반 함수 |
+| 배열, 평범한 객체 | 클래스 인스턴스, `Map`, `Set` |
+| `Date` | Prisma 클라이언트(`prisma`) 같은 서버 자원 |
+| **Server Action** (특별 취급) | 이벤트 핸들러 |
+| JSX (서버가 렌더한 결과) | — |
+
+이 프로젝트의 예:
+
+- `todos/page.tsx` → `<TodoItem todo={todo} />`: 평범한 객체라 넘길 수 있다.
+- `posts/[id]/edit/page.tsx` → `<PostForm action={updatePostAction.bind(null, post.id)} />`: Server Action 은 함수지만 넘길 수 있다. Next.js 가 "이 액션을 부르는 참조" 로 바꿔 보내기 때문이다.
+- `todos/page.tsx` 에서 `onDelete={() => ...}` 같은 일반 함수를 넘기면 빌드 에러. 그래서 삭제 로직은 `TodoItem` 안에서 Server Action 을 직접 import 해 호출한다.
+
+### A-9. 이 프로젝트에서 찾아보기
+
+| 파일 | 종류 | 왜 |
+| --- | --- | --- |
+| `app/layout.tsx`, `app/page.tsx` | 서버 | 구조와 링크만. 상호작용 없음 |
+| `todos/page.tsx` | 서버 | `await getTodos()` 로 Prisma 를 읽는다 |
+| `todos/todo-item.tsx` | 클라이언트 | 체크박스 클릭, 수정 모드 `useState`, `useOptimistic` |
+| `todos/add-todo-form.tsx` | 클라이언트 | `useActionState`, `useRef` 로 폼 초기화, 토스트 |
+| `components/user-menu.tsx` | 서버 | `cookies()` 로 세션을 읽는다. 로그아웃은 `<form action>` 이라 onClick 이 필요 없다 |
+| `posts/[id]/post-owner-actions.tsx` | 서버 | 세션만 읽고 버튼을 그린다. 실제 클릭은 자식 `DeletePostButton`(클라이언트) |
+| `posts/[id]/other-posts.tsx` | 서버 | 1.5초 걸리는 `await`. 서버 컴포넌트라 스트리밍이 된다 |
+| `posts/post-search-form.tsx` | 클라이언트 | 타이핑 이벤트, 디바운스 타이머, `useRouter` |
+| `posts/error.tsx` | 클라이언트 | Error Boundary 는 클라이언트여야 한다 (React 규칙) |
+| `components/modal.tsx` | 클라이언트 | `useRouter().back()`, Dialog 열림/닫힘 |
+| `components/store-hydrator.tsx` | 클라이언트 | `useEffect` 로 localStorage 복원. 화면에는 아무것도 안 그림 |
+| `posts/[id]/recently-viewed.tsx` | 클라이언트 + `ssr: false` | localStorage 를 렌더 중에 읽으므로 서버에서 아예 안 그린다 |
+
+패턴이 보인다. **"읽고 그리는 것" 은 서버, "누르고 바꾸는 것" 은 클라이언트.** 그리고 서버 컴포넌트는 되도록 크게, 클라이언트 컴포넌트는 되도록 작게.
+
+### A-10. 스스로 확인하기
+
+1. `todos/page.tsx` 에 `onClick` 을 넣으면? → 에러. 서버 컴포넌트에는 이벤트 핸들러가 없다. 버튼을 클라이언트 컴포넌트로 분리한다.
+2. `todo-item.tsx` 에서 `@/lib/prisma` 를 import 하면? → 빌드 에러. `server-only` 가 막는다. 데이터는 props 로 받거나 Server Action 에 부탁한다.
+3. `user-menu.tsx` 에 `"use client"` 를 붙이면? → `cookies()` 를 못 쓴다. 세션은 서버에서만 읽을 수 있다.
+4. 클라이언트 컴포넌트 렌더 중에 `new Date().toLocaleTimeString()` 을 쓰면? → 서버와 브라우저의 시각이 달라 hydration mismatch 가 날 수 있다. `useEffect` 에서 설정한다 (`post-count.tsx` 가 그렇게 한다).
+5. `(demos)/layout.tsx` 는 서버인데 안의 `QueryProviders` 는 클라이언트다. 그 안에 끼워진 데모 page.tsx 는? → 여전히 서버. children 으로 끼워졌기 때문이다.
 
 ---
 
