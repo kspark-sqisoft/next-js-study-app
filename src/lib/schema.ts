@@ -10,6 +10,7 @@ export const SCHEMA = `
     email         TEXT    NOT NULL UNIQUE,
     name          TEXT    NOT NULL,
     password_hash TEXT    NOT NULL,            -- 비밀번호 원문은 절대 저장하지 않는다
+    avatar_path   TEXT,                        -- 아바타 파일명 (data/uploads/ 안). NULL 이면 없음
     created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
   );
 
@@ -83,6 +84,9 @@ export function ensureSchema(db: DatabaseSync): void {
   }
   if (!hasColumn(db, "posts", "image_path")) {
     db.exec("ALTER TABLE posts ADD COLUMN image_path TEXT");
+  }
+  if (!hasColumn(db, "users", "avatar_path")) {
+    db.exec("ALTER TABLE users ADD COLUMN avatar_path TEXT");
   }
 }
 

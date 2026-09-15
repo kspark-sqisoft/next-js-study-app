@@ -47,5 +47,5 @@ export function GET() {
         "DELETE /api/v1/todos/:id",
       ],
     },
-  });
+  }, { headers: { "Content-Type": "application/json; charset=utf-8" } }); // Safari 에서 그대로 열어도 한글이 깨지지 않게 charset 명시
 }

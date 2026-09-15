@@ -15,5 +15,8 @@ export const loginSchema = z.object({
   password: z.string().min(1, "비밀번호를 입력하세요."),
 });
 
+/** 프로필 수정. 이름 규칙은 가입 때와 같다 (아바타 파일은 uploads-validate 가 검사) */
+export const profileSchema = z.object({ name: signupSchema.shape.name });
+
 export type SignupInput = z.infer<typeof signupSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;

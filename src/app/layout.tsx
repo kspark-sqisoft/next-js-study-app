@@ -1,12 +1,15 @@
 // 루트 레이아웃. 모든 페이지를 감싸는 최상위 컴포넌트로 <html>, <body> 를 여기서 정의한다.
 // 페이지 이동 시 다시 렌더링되지 않고 유지된다.
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css"; // Tailwind 및 전역 스타일
 import { SiteHeader } from "@/components/site-header";
 import { StoreHydrator } from "@/components/store-hydrator";
+import { ThemeColorScript } from "@/components/theme-color-script";
+import { ThemeColorSync } from "@/components/theme-color-sync";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
+import { THEME_COLORS } from "@/lib/theme-colors";
 import { TRPCReactProvider } from "@/trpc/client";
 
 // Google Fonts 를 빌드 시 다운로드해 셀프 호스팅. CSS 변수로 노출된다.
@@ -26,6 +29,14 @@ export const metadata: Metadata = {
   description: "Next.js 16 + TypeScript + shadcn/ui study project",
 };
 
+// 주소창·상태 표시줄 색. OS 설정에 따라 둘 중 하나가 첫 렌더에 쓰이고, 토글 뒤에는 ThemeColorSync 가 덮어쓴다.
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: THEME_COLORS.light },
+    { media: "(prefers-color-scheme: dark)", color: THEME_COLORS.dark },
+  ],
+};
+
 // children 자리에 현재 경로의 page.tsx 가 들어온다.
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
@@ -39,6 +50,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body className="flex min-h-full flex-col">
         {/* 테마 Provider 와 tRPC + TanStack Query Provider. 둘 다 클라이언트 컴포넌트지만
             안의 헤더와 페이지는 여전히 서버 컴포넌트다 (children 샌드위치). 댓글(/posts/[id])과 데모 페이지가 tRPC 를 쓰므로 루트에 둔다 */}
+        {/* hydration 전에 theme-color 메타를 저장된 테마에 맞춘다 (next-themes 의 인라인 스크립트와 같은 시점) */}
+        <ThemeColorScript />
         <ThemeProvider>
           <TRPCReactProvider>
             <SiteHeader />
@@ -53,6 +66,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             <Toaster />
             {/* persist 스토어(최근 본 글)를 마운트 후 localStorage 에서 복원 */}
             <StoreHydrator />
+          {/* 테마가 바뀌면 theme-color 메타도 바꾼다 (모바일 상태 표시줄·주소창 색) */}
+          <ThemeColorSync />
           </TRPCReactProvider>
         </ThemeProvider>
       </body>

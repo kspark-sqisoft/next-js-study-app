@@ -19,10 +19,15 @@ const sections = [
 export function SiteHeader() {
   return (
     <header className="sticky top-0 z-40 border-b border-border/70 bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/70">
-      <div className="mx-auto flex h-12 w-full max-w-5xl items-center gap-6 px-6">
-        <Link href="/" className="flex items-center gap-2 text-sm font-semibold tracking-tight">
-          <span aria-hidden className="size-2.5 rounded-[3px] bg-primary" />
-          Next.js Study
+      {/* 모바일(<640px)에서는 브랜드 글자를 숨기고 마크만 남긴다. 헤더 한 줄에 네비·토글·로그인 상태가 다 들어가야 하기 때문 */}
+      <div className="mx-auto flex h-12 w-full max-w-5xl items-center gap-3 px-4 sm:gap-6 sm:px-6">
+        <Link
+          href="/"
+          aria-label="홈"
+          className="flex shrink-0 items-center gap-2 py-2 text-sm font-semibold tracking-tight whitespace-nowrap"
+        >
+          <span aria-hidden className="size-3 rounded-[3px] bg-primary sm:size-2.5" />
+          <span className="hidden sm:inline">Next.js Study</span>
         </Link>
 
         <nav aria-label="주요 섹션" className="flex h-full items-stretch gap-1">
@@ -30,7 +35,7 @@ export function SiteHeader() {
             <NavLink
               key={s.href}
               href={s.href}
-              className="relative flex items-center px-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+              className="relative flex items-center px-2 text-sm whitespace-nowrap text-muted-foreground transition-colors hover:text-foreground"
               activeClassName="text-foreground after:absolute after:inset-x-2 after:-bottom-px after:h-0.5 after:rounded-full after:bg-primary"
             >
               {s.label}
@@ -39,7 +44,7 @@ export function SiteHeader() {
           ))}
         </nav>
 
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex min-w-0 items-center gap-1 sm:gap-2">
           <ThemeToggle />
           <Suspense fallback={<div className="h-7 w-24" />}>
             <UserMenu />

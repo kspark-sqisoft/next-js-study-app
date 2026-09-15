@@ -47,7 +47,7 @@ test("이미지 업로드: 글에 첨부하면 next/image 로 최적화되어 �
   await form.getByRole("button", { name: "작성" }).click();
   await page.waitForURL(/\/posts\/\d+$/);
 
-  const img = page.locator("article img");
+  const img = page.locator("article figure img");
   await expect(img).toBeVisible();
   // next/image 는 src 를 /_next/image?url=... 로 바꿔 최적화 엔드포인트를 거친다
   await expect(img).toHaveAttribute("src", /_next\/image\?url=%2Fapi%2Fuploads%2F/);
@@ -64,7 +64,7 @@ test("이미지 업로드: 글에 첨부하면 next/image 로 최적화되어 �
   await page.getByLabel(/현재 이미지 삭제/).check();
   await page.locator("form", { has: page.locator("#title") }).getByRole("button", { name: "저장" }).click();
   await page.waitForURL(postUrl);
-  await expect(page.locator("article img")).toHaveCount(0);
+  await expect(page.locator("article figure img")).toHaveCount(0);
 });
 
 test("이미지 업로드: 허용되지 않은 파일은 폼 에러", async ({ page }) => {

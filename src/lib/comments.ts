@@ -10,6 +10,7 @@ export type Comment = {
   parentId: number | null;
   authorId: number;
   authorName: string;
+  authorAvatar: string | null; // 작성자 아바타 파일명
   content: string;
   createdAt: string;
 };
@@ -23,6 +24,7 @@ type CommentRow = {
   parent_id: number | null;
   author_id: number;
   author_name: string;
+  author_avatar: string | null;
   content: string;
   created_at: string;
 };
@@ -34,6 +36,7 @@ function toComment(row: CommentRow): Comment {
     parentId: row.parent_id,
     authorId: row.author_id,
     authorName: row.author_name,
+    authorAvatar: row.author_avatar,
     content: row.content,
     createdAt: row.created_at,
   };
@@ -53,12 +56,12 @@ export function commentsTag(postId: number): string {
 export async function getCommentThreads(postId: number): Promise<CommentThread[]> {
   "use cache";
   cacheLife("hours");
-  cacheTag(commentsTag(postId));
+  cacheTag(commentsTag(postId), "comments"); // 글별 태그 + 전역 태그 (작성자 이름·아바타가 바뀌면 전부 지운다)
   log.cache(`getCommentThreads(postId=${postId}) — 몸체 실행, DB 조회. 태그: ${commentsTag(postId)}`);
 
   const rows = db
     .prepare(
-      `SELECT c.*, u.name AS author_name
+      `SELECT c.*, u.name AS author_name, u.avatar_path AS author_avatar
        FROM comments c
        JOIN users u ON u.id = c.author_id
        WHERE c.post_id = ?
@@ -98,7 +101,7 @@ export function listComments(
 
   const rows = db
     .prepare(
-      `SELECT c.*, u.name AS author_name
+      `SELECT c.*, u.name AS author_name, u.avatar_path AS author_avatar
        FROM comments c
        JOIN users u ON u.id = c.author_id
        WHERE c.post_id = ?
@@ -113,7 +116,7 @@ export function listComments(
 export function findComment(id: number): Comment | null {
   const row = db
     .prepare(
-      `SELECT c.*, u.name AS author_name FROM comments c JOIN users u ON u.id = c.author_id WHERE c.id = ?`,
+      `SELECT c.*, u.name AS author_name, u.avatar_path AS author_avatar FROM comments c JOIN users u ON u.id = c.author_id WHERE c.id = ?`,
     )
     .get(id) as CommentRow | undefined;
   return row ? toComment(row) : null;

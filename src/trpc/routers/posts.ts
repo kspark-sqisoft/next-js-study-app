@@ -44,7 +44,7 @@ export const postsRouter = createTRPCRouter({
       // input 은 이미 검증·기본값 적용이 끝난 값. input.limit 은 number 로 확정되어 있다
       const { posts, nextCursor } = getPostsByCursor(input.q ?? "", input.cursor ?? null, input.limit);
       return {
-        posts: posts.map(({ id, title, authorName, imagePath, createdAt }) => ({ id, title, authorName, imagePath, createdAt })),
+        posts: posts.map(({ id, title, authorName, authorAvatar, imagePath, createdAt }) => ({ id, title, authorName, authorAvatar, imagePath, createdAt })),
         nextCursor,
       };
     }),

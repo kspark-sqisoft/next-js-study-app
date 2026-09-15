@@ -8,6 +8,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import Link from "next/link";
+import { Avatar } from "@/components/avatar";
 import { getPostsPage, PAGE_SIZE } from "@/lib/posts";
 import { PostFeed, type FeedItem } from "./post-feed";
 import { log } from "@/lib/study-log";
@@ -18,8 +19,8 @@ export default async function FeedPage() {
   log.render('FeedPage → getPostsPage("", 1) 호출. /posts 1페이지와 같은 캐시 키라 서로 캐시를 공유한다');
   const first = await getPostsPage("", 1); // "use cache" 된 첫 페이지 (posts 태그로 무효화됨)
   log.render(`FeedPage ← ${first.posts.length}건, cachedAt=${first.cachedAt}. 다음 페이지부터는 브라우저가 /api/posts 를 직접 호출`);
-  const initialPosts = first.posts.map(({ id, title, authorName, imagePath, createdAt }) => ({
-    id, title, authorName, imagePath, createdAt,
+  const initialPosts = first.posts.map(({ id, title, authorName, authorAvatar, imagePath, createdAt }) => ({
+    id, title, authorName, authorAvatar, imagePath, createdAt,
   }));
   // 첫 페이지가 꽉 찼으면 더 있을 수 있다 → 마지막 id 를 커서로. 아니면 끝.
   const initialCursor = first.posts.length === PAGE_SIZE ? first.posts[first.posts.length - 1].id : null;
@@ -47,8 +48,11 @@ function StaticList({ posts }: { posts: FeedItem[] }) {
         <li key={post.id}>
           <Link href={`/posts/${post.id}`} className="block px-4 py-3 hover:bg-muted">
             <div className="truncate font-medium">{post.title}</div>
-            <div className="text-xs text-muted-foreground">
-              #{post.id} · {post.authorName ?? "작성자 없음"} · {post.createdAt}
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <span>#{post.id}</span>
+              <Avatar name={post.authorName} avatarPath={post.authorAvatar} size="xs" />
+              <span className="truncate">{post.authorName ?? "작성자 없음"}</span>
+              <span>· {post.createdAt}</span>
             </div>
           </Link>
         </li>

@@ -17,6 +17,7 @@ import type { Comment } from "@/lib/comments";
 import { CommentForm } from "./comment-form";
 import { DeleteCommentButton } from "./delete-comment-button";
 import { ReplyToggle } from "./reply-toggle";
+import { Avatar } from "@/components/avatar";
 
 export function CommentThreads({ postId, currentUserId }: { postId: number; currentUserId: number | null }) {
   const trpc = useTRPC();
@@ -76,6 +77,7 @@ function CommentItem({ comment, currentUserId }: { comment: Comment; currentUser
   return (
     <div>
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <Avatar name={comment.authorName} avatarPath={comment.authorAvatar} size="xs" />
         <span className="font-medium text-foreground">{comment.authorName}</span>
         <span>{comment.createdAt}</span>
         {isMine && <DeleteCommentButton id={comment.id} postId={comment.postId} />}

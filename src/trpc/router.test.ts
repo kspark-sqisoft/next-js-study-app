@@ -27,7 +27,7 @@ const { createCallerFactory } = await import("./init");
 const { revalidateTag } = await import("next/cache");
 
 const createCaller = createCallerFactory(appRouter); // ctx 를 넣으면 "그 사용자로 부르는" caller 가 나온다
-type User = { id: number; name: string; email: string };
+type User = { id: number; name: string; email: string; avatarPath: string | null };
 let demo: User;
 let guest: User;
 let postId: number;

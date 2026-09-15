@@ -10,6 +10,7 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Avatar } from "@/components/avatar";
 import { getCurrentUser } from "@/lib/dal";
 import { getPostsPage, PAGE_SIZE } from "@/lib/posts";
 import { imageUrl } from "@/lib/uploads";
@@ -96,8 +97,11 @@ async function PostList({ searchParams }: Pick<PageProps<"/posts">, "searchParam
                 )}
                 <div className="min-w-0">
                   <div className="truncate font-medium">{post.title}</div>
-                  <div className="text-xs text-muted-foreground">
-                    #{post.id} · {post.authorName ?? "작성자 없음"} · {post.createdAt}
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <span>#{post.id}</span>
+                    <Avatar name={post.authorName} avatarPath={post.authorAvatar} size="xs" />
+                    <span className="truncate">{post.authorName ?? "작성자 없음"}</span>
+                    <span>· {post.createdAt}</span>
                   </div>
                 </div>
               </Link>
