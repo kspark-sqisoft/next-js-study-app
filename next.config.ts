@@ -7,6 +7,12 @@ const nextConfig: NextConfig = {
   // - 캐시되지 않은 동적 데이터는 반드시 <Suspense> (또는 loading.tsx) 안에 있어야 한다.
   cacheComponents: true,
 
+  // 휴대폰 등 다른 기기에서 개발 서버(npm run dev)에 LAN 주소로 접속할 때 필요하다.
+  // Next.js 16 개발 서버는 여기 없는 호스트에서 오는 /_next/* 요청(HMR 웹소켓 등)을 403 으로 막고,
+  // 그러면 페이지 HTML 은 보여도 hydration 이 일어나지 않아 버튼·토글·클라이언트 페칭이 전부 죽는다.
+  // 프로덕션(next start)에는 이 검사가 없다. 패턴은 도메인 조각 단위 와일드카드다 (192.168.*.* 는 192.168.0.5 에 매칭).
+  allowedDevOrigins: ["192.168.*.*", "192.169.*.*", "10.*.*.*", "172.16.*.*", "*.local"],
+
   // 경로 패턴만으로 정해지는 리다이렉트. 라우트/파일 시스템보다 먼저 검사된다.
   // permanent: true → 308 (브라우저·검색엔진이 영구 기억), false → 307 (임시)
   async redirects() {

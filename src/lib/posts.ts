@@ -12,6 +12,7 @@ export type Post = {
   content: string;
   authorId: number | null; // NULL 이면 작성자 없음 (초기 샘플 등)
   authorName: string | null;
+  authorAvatar: string | null; // 작성자 아바타 파일명 (users.avatar_path)
   imagePath: string | null; // 첨부 이미지 파일명. 화면에서는 /api/uploads/<파일명> 으로 접근
   createdAt: string;
   updatedAt: string;
@@ -23,6 +24,7 @@ type PostRow = {
   content: string;
   author_id: number | null;
   author_name: string | null;
+  author_avatar: string | null;
   image_path: string | null;
   created_at: string;
   updated_at: string;
@@ -30,7 +32,7 @@ type PostRow = {
 
 // users 를 LEFT JOIN 해서 작성자 이름까지 한 번에 가져온다
 const SELECT_POST = `
-  SELECT p.*, u.name AS author_name
+  SELECT p.*, u.name AS author_name, u.avatar_path AS author_avatar
   FROM posts p
   LEFT JOIN users u ON u.id = p.author_id
 `;
@@ -42,6 +44,7 @@ function toPost(row: PostRow): Post {
     content: row.content,
     authorId: row.author_id,
     authorName: row.author_name,
+    authorAvatar: row.author_avatar,
     imagePath: row.image_path,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

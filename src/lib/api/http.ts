@@ -84,6 +84,8 @@ function jsonResponse(body: unknown, status: number, headers?: Record<string, st
       // 공개 API 응답은 중간 캐시(CDN, 브라우저)가 보관하면 안 된다.
       // 응답 내용이 Authorization 헤더에 따라 달라지기 때문이다.
       "Cache-Control": "no-store",
+      // charset 명시: Safari 가 응답을 그대로 열 때 한글이 깨지지 않게
+      "Content-Type": "application/json; charset=utf-8",
       ...headers,
     },
   });

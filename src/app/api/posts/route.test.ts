@@ -38,7 +38,7 @@ describe("GET /api/posts?cursor=&limit= (커서 모드)", () => {
     const page1 = await (await GET(new NextRequest("http://localhost/api/posts?limit=1"))).json();
     expect(page1.posts).toHaveLength(1);
     expect(page1.nextCursor).toBe(page1.posts[0].id);
-    expect(Object.keys(page1.posts[0]).sort()).toEqual(["authorName", "createdAt", "id", "imagePath", "title"]);
+    expect(Object.keys(page1.posts[0]).sort()).toEqual(["authorAvatar", "authorName", "createdAt", "id", "imagePath", "title"]); // 목록 항목: 작성자 아바타 포함, 본문 제외
 
     const page2 = await (await GET(new NextRequest(`http://localhost/api/posts?limit=1&cursor=${page1.nextCursor}`))).json();
     expect(page2.posts[0].id).toBeLessThan(page1.posts[0].id);

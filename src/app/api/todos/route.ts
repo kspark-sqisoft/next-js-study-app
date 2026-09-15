@@ -10,5 +10,6 @@ import { log } from "@/lib/study-log";
 export async function GET() {
   log.api("GET /api/todos → getTodos() 호출 (connection() 덕분에 요청마다 실행)");
   const todos = await getTodos();
-  return Response.json(todos);
+  // charset 을 명시한다. Safari 는 charset 없는 JSON 을 브라우저에서 그대로 열면 한글을 잘못 해석해 깨져 보인다
+  return Response.json(todos, { headers: { "Content-Type": "application/json; charset=utf-8" } });
 }

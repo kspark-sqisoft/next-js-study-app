@@ -51,6 +51,11 @@ npm run db:seed -- --reset   # 샘플 데이터로 초기화
 
 ---
 
+### 휴대폰에서 보기
+
+같은 Wi-Fi 의 휴대폰에서 `http://<이 컴퓨터의 LAN IP>:3000` 으로 개발 서버를 열 수 있다. `next dev` 가 시작할 때 `Network:` 줄에 그 주소가 찍힌다.
+Next.js 16 개발 서버는 `next.config.ts` 의 `allowedDevOrigins` 에 없는 호스트의 요청을 막아 hydration 이 되지 않으므로(버튼·토글·클라이언트 페칭이 전부 죽는다), 사설 IP 대역(`192.168.*.*`, `10.*.*.*` 등)과 `*.local` 을 허용해 두었다. 대역이 다르면 그 목록에 추가하고 `npm run dev` 를 다시 시작한다. `npm run build && npm start` 로 띄운 프로덕션 서버에는 이 제한이 없다.
+
 ## 용어 사전 (모르는 말이 나오면 여기로)
 
 이 문서에는 낯선 용어가 많이 나온다. 각 용어를 **쉬운 말 한두 줄** 로 풀고, 자세한 설명이 있는 절 번호를 붙였다. 본문을 읽다 막히면 이 표로 돌아온다.
@@ -464,6 +469,8 @@ Next.js 16 에서는 ISR 을 별도 설정이 아니라 `"use cache"` + `cacheLi
 | 33 | zustand persist: localStorage 영속과 SSR hydration (최근 본 글) | `src/stores/recently-viewed-store.ts`, Part 6 |
 | 34 | 디바운스 검색: 입력이 멈추면 URL 갱신, `useTransition` 으로 깜빡임 방지 | `src/hooks/use-debounced-callback.ts`, `src/app/posts/post-search-form.tsx` (2-9) |
 | 35 | 이 방식의 한계와 Prisma · tRPC 를 쓰는 이유. 비교 브랜치 | Part 7, `feat/prisma`, `feat/trpc` 브랜치 |
+| 36 | 프로필과 아바타: 파일 업로드 재사용, 작성자 표시가 들어 있는 캐시(`posts`, `comments`)와 레이아웃 무효화 | `src/app/profile/`, `src/components/avatar.tsx`, docs 6장 흐름 4 |
+| 37 | 라이트/다크 테마와 헤더: `next-themes`, `suppressHydrationWarning`, `usePathname` 으로 현재 섹션 표시 | `src/components/theme-*.tsx`, `site-header.tsx`, `nav-link.tsx`, docs 2장 |
 
 이후에 볼 항목은 [docs/NEXT_STEPS.md](docs/NEXT_STEPS.md) 에 정리해 두었다.
 
@@ -2240,6 +2247,9 @@ src/
         recently-viewed.tsx        # localStorage 위젯 (브라우저 전용)
         recently-viewed-loader.tsx # next/dynamic ssr:false 래퍼
         error-trigger.tsx, delete-post-button.tsx
+    profile/
+      page.tsx      # 내 프로필 (requireUser). 이름·아바타 수정
+      profile-form.tsx, actions.ts  # 폼 + Server Action (아바타 파일은 lib/uploads.ts 재사용)
     p/[id]/page.tsx # permanentRedirect 예 (/p/3 → /posts/3)
     api/
       todos/route.ts  # REST API 예시 (내부용, 데모 화면이 사용)
@@ -2270,6 +2280,11 @@ src/
     posts-nav.tsx   # /posts 와 (demos) 가 공유하는 네비게이션
     query-providers.tsx  # QueryClientProvider + DevTools
     user-menu.tsx   # 헤더 로그인 상태 (서버 컴포넌트)
+    avatar.tsx      # 작성자·사용자 아바타 (이미지 또는 이름 첫 글자). 서버/클라이언트 양쪽에서 사용
+    site-header.tsx # 상단 헤더 (브랜드, 섹션 네비, 테마 토글, UserMenu)
+    nav-link.tsx    # usePathname 으로 현재 섹션 표시 (클라이언트)
+    theme-provider.tsx, theme-toggle.tsx  # next-themes 라이트/다크 (클라이언트)
+    theme-color-sync.tsx, theme-color-script.tsx  # 테마에 맞춰 theme-color 메타 갱신 (모바일 상태 표시줄 색). script 는 hydration 전, sync 는 토글 뒤
   lib/
     schema.ts       # 테이블 정의 + 수동 마이그레이션 (앱과 스크립트가 공유)
     schemas/        # Zod 검증 스키마 (post, auth, comment, api)

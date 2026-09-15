@@ -9,5 +9,5 @@ import { openApiDocument } from "@/lib/api/openapi";
 
 export function GET() {
   // 요청을 읽지 않으므로 이 라우트도 빌드 시점에 미리 만들어진다.
-  return Response.json(openApiDocument);
+  return Response.json(openApiDocument, { headers: { "Content-Type": "application/json; charset=utf-8" } });
 }

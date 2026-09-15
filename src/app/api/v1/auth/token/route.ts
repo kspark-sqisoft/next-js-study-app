@@ -23,5 +23,5 @@ export const POST = apiRoute(async ({ request }) => {
 
   // 비밀번호를 확인한 이 순간이 리프레시 토큰 "가족" 의 시작점이다. 가족의 절대 수명(30일)은 여기서부터 센다.
   const refresh = issueRefreshToken(found.id);
-  return ok(await tokenResponse({ id: found.id, name: found.name, email: found.email }, refresh));
+  return ok(await tokenResponse({ id: found.id, name: found.name, email: found.email, avatarPath: found.avatar_path }, refresh));
 });

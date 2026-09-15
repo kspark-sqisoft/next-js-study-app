@@ -6,6 +6,7 @@
 
 import { use, useEffect, useRef } from "react";
 import Link from "next/link";
+import { Avatar } from "@/components/avatar";
 import { io } from "next/cache";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -14,6 +15,7 @@ export type FeedItem = {
   id: number;
   title: string;
   authorName: string | null;
+  authorAvatar: string | null;
   imagePath: string | null;
   createdAt: string;
 };
@@ -75,8 +77,11 @@ export function PostFeed({ initialPosts, initialCursor, pageSize }: Props) {
               )}
               <div className="min-w-0">
                 <div className="truncate font-medium">{post.title}</div>
-                <div className="text-xs text-muted-foreground">
-                  #{post.id} · {post.authorName ?? "작성자 없음"} · {post.createdAt}
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span>#{post.id}</span>
+                  <Avatar name={post.authorName} avatarPath={post.authorAvatar} size="xs" />
+                  <span className="truncate">{post.authorName ?? "작성자 없음"}</span>
+                  <span>· {post.createdAt}</span>
                 </div>
               </div>
             </Link>
