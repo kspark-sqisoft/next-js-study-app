@@ -249,6 +249,7 @@ sequenceDiagram
 | `src/components/site-header.tsx` | 서버 | 헤더. 브랜드, 섹션 네비, 테마 토글, `UserMenu`(Suspense) |
 | `src/components/nav-link.tsx` | 클라이언트 | `usePathname` 으로 현재 섹션에 `aria-current` 와 밑줄 |
 | `src/components/theme-provider.tsx`, `theme-toggle.tsx` | 클라이언트 | `next-themes`. `<html class="dark">` 를 붙였다 떼고, 해/달 버튼으로 전환 |
+| `src/components/theme-color-sync.tsx`, `theme-color-script.tsx`, `src/lib/theme-colors.ts` | 클라이언트 / 서버 / 공용 | 모바일 상태 표시줄 색. `script` 는 hydration 전에 저장된 테마로, `sync` 는 토글 뒤에 `<meta name="theme-color">` 를 같은 색으로 바꾼다(안드로이드 크롬·iOS 18 이하). iOS 26 Safari 는 이 메타 대신 헤더의 `background-color` 를 읽으므로 헤더는 블러 없는 불투명 배경이고, `sync` 가 토글 뒤 보이지 않는 fixed 요소를 잠깐 넣었다 빼서 다시 읽게 한다. 첫 렌더 값은 `layout.tsx` 의 `viewport.themeColor` |
 | `src/trpc/client.tsx` | 클라이언트 | `QueryClientProvider` > `TRPCProvider` > children + DevTools. `useTRPC` 훅 export |
 | `src/trpc/query-client.ts` | 공용 | `QueryClient` 공장. `staleTime` 30초, superjson, pending 쿼리도 dehydrate |
 | `src/components/user-menu.tsx` | 서버 | 세션을 읽는 유일한 헤더 부품 |
