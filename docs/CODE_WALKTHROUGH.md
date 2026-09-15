@@ -29,6 +29,7 @@
 | 12 | tRPC 층 자세히 보기 | 라우터에서 훅까지 | 컨텍스트, 프로시저, 라우터, `AppRouter` 타입, 링크, 서버 프록시 |
 | 13 | 한눈에 보는 요약 | — | 무효화 지도, 개념 색인 |
 | 부록 A | 서버 컴포넌트와 클라이언트 컴포넌트, 제대로 이해하기 | — | 경계, 직렬화, 샌드위치 패턴, 오해 세 가지 |
+| 부록 B | Server Action, 제대로 이해하기 | — | stub 과 POST, 부르는 방법 세 가지, 무효화, 공개 엔드포인트로서의 보안 |
 
 ---
 
@@ -317,7 +318,7 @@ sequenceDiagram
 
 핵심 규칙 세 가지.
 
-1. **Server Action 은 `"use server"` 파일의 함수다.** 브라우저에서는 함수 호출처럼 보이지만 POST 요청이다.
+1. **Server Action 은 `"use server"` 파일의 함수다.** 브라우저에서는 함수 호출처럼 보이지만 POST 요청이다. 안에서 실제로 무슨 일이 일어나는지는 **부록 B** 에 있다.
 2. **바꾼 뒤에는 `revalidatePath("/todos")`.** 새 RSC payload 가 내려와 목록이 교체된다. **캐시가 한 층** 이다. 7장의 tRPC 댓글은 캐시가 두 층이라 이보다 할 일이 많다.
 3. **서버에서 다시 검증한다.** `parseTitle`, `parseIds`.
 
@@ -1370,6 +1371,199 @@ flowchart TB
 3. `user-menu.tsx` 에 `"use client"` 를 붙이면? → `cookies()` 를 못 쓴다. 세션은 서버에서만 읽을 수 있다.
 4. 클라이언트 컴포넌트 렌더 중에 `new Date().toLocaleTimeString()` 을 쓰면? → 서버와 브라우저의 시각이 달라 hydration mismatch 가 날 수 있다. `useEffect` 에서 설정한다 (`post-count.tsx` 가 그렇게 한다).
 5. `app/layout.tsx` 는 서버인데 안의 `TRPCReactProvider` 는 클라이언트다. 그 안에 끼워진 `UserMenu` 와 각 page.tsx 는? → 여전히 서버. children 으로 끼워졌기 때문이다. `UserMenu` 가 `cookies()` 를 계속 쓸 수 있는 이유다.
+
+---
+
+## 부록 B. Server Action, 제대로 이해하기
+
+부록 A 가 "코드가 어디로 가는가" 였다면, 여기서는 "브라우저가 서버의 함수를 어떻게 부르는가" 다. Server Action 은 이 앱에서 데이터를 **바꾸는** 거의 모든 일을 맡는다.
+
+### B-1. 한 문장
+
+**Server Action 은 `"use server"` 로 표시한 서버 함수인데, 브라우저에서 일반 함수처럼 부를 수 있는 것이다.** 부르면 Next.js 가 그 호출을 POST 요청으로 바꿔 서버에서 실행하고, 결과를 돌려준다. 함수 본문은 브라우저에 없다.
+
+비유하면 식당 테이블의 호출 벨이다. 손님(브라우저)은 "할 일 추가해 주세요" 버튼만 누른다. 실제 조리(DB 변경)는 주방(서버)에서 일어나고, 손님은 레시피(SQL, 세션 검증)를 볼 수 없다.
+
+| | 일반 함수 | Server Action |
+| --- | --- | --- |
+| 표시 | 없음 | 파일 맨 위 `"use server"` (이 프로젝트는 파일 단위) |
+| 어디서 실행 | 부른 곳에서 | **항상 서버에서** |
+| 브라우저가 가진 것 | 함수 본문 | 본문 대신 "이 액션을 호출하라" 는 작은 stub |
+| 인자와 반환값 | 아무거나 | **직렬화 가능한 값만** (네트워크를 건너므로) |
+| 이 프로젝트에서 | `parseTitle()` (export 안 함) | `addTodoAction()`, `loginAction()`, `createPostAction()` |
+
+### B-2. 빌드 시와 실행 시에 무슨 일이 일어나나
+
+```mermaid
+flowchart LR
+  subgraph BUILD["빌드 시"]
+    F["todos/actions.ts<br/>'use server'<br/>export async function addTodoAction(...)"]
+    F -->|"서버 번들"| SV["함수 본문 + 고유 액션 ID"]
+    F -->|"클라이언트 번들"| ST["stub 함수<br/>'ID 를 POST 로 보내라' 만 있음<br/>본문 없음"]
+  end
+  subgraph RUN["실행 시 (브라우저)"]
+    CALL["addTodoAction(prev, formData) 호출"] --> POST["POST 현재 URL<br/>헤더 Next-Action: ID<br/>본문: 직렬화한 인자"]
+  end
+  ST -.-> CALL
+```
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant U as 사용자
+  participant C as AddTodoForm (브라우저)
+  participant N as Next.js 서버
+  participant A as addTodoAction (서버)
+  participant DB as SQLite
+
+  U->>C: 폼 제출
+  C->>N: POST /todos<br/>Next-Action: 〈액션 ID〉<br/>본문: [이전 상태, FormData]
+  N->>A: ID 로 함수를 찾아 인자를 복원해 실행
+  A->>A: parseTitle 로 검증 (브라우저 값은 믿지 않는다)
+  A->>DB: createTodo(title) → INSERT INTO todos … RETURNING *
+  A->>N: revalidatePath("/todos")
+  A-->>N: return null (에러 없음)
+  N->>N: /todos 를 다시 렌더 → 새 RSC payload
+  N-->>C: 응답 = 반환값 + 새 RSC payload (text/x-component)
+  C->>C: state 갱신, 목록 교체. 새로고침 없음
+```
+
+개발자 도구 Network 탭에서 확인할 수 있다. 요청은 현재 페이지 URL 로 가는 POST 이고, 헤더에 `Next-Action` 이 있으며, 응답 본문은 JSON 이 아니라 RSC payload 다. 터미널에는 `[action] addTodoAction 시작` 이 찍힌다.
+
+### B-3. 부르는 방법 세 가지
+
+이 프로젝트에서 액션을 부르는 방식은 세 가지이고, 각각 어울리는 자리가 다르다.
+
+| 방법 | 어디서 | 인자 | 얻는 것 | 이 프로젝트의 예 |
+| --- | --- | --- | --- | --- |
+| ① `<form action={액션}>` | 서버 컴포넌트에서도 가능 | `FormData` 자동 | JS 없이도 동작 (점진적 향상) | `user-menu.tsx` 의 로그아웃 |
+| ② `useActionState(액션, 초기값)` | 클라이언트 컴포넌트 | `(이전 상태, FormData)` | `[state, formAction, pending]` — 서버가 돌려준 에러와 진행 중 표시 | `add-todo-form.tsx`, `auth-form.tsx`, `post-form.tsx`, `comment-form.tsx` |
+| ③ 핸들러에서 직접 호출 + `useTransition` | 클라이언트 컴포넌트 | 자유 (`id`, `boolean` 등) | `isPending` 으로 진행 중 표시, 반환값을 바로 받음 | `todo-item.tsx` 의 토글·삭제, `clear-completed-button.tsx`, `delete-post-button.tsx` |
+
+```mermaid
+flowchart TB
+  Q1{"폼인가?"}
+  Q2{"서버가 돌려준 에러를<br/>입력란 옆에 보여 줘야 하나?"}
+  Q3{"JS 없이도 동작해야 하나?"}
+  A1["① form action<br/>(서버 컴포넌트에서도 OK)"]
+  A2["② useActionState"]
+  A3["③ startTransition(async () => await 액션(...))"]
+  Q1 -->|"아니오 (버튼, 체크박스)"| A3
+  Q1 -->|"예"| Q2
+  Q2 -->|"예"| A2
+  Q2 -->|"아니오"| Q3
+  Q3 -->|"예"| A1
+  Q3 -->|"아니오"| A2
+```
+
+**`bind` 로 인자를 미리 고정하기.** ②의 시그니처는 `(이전 상태, FormData)` 로 정해져 있다. `id` 같은 값을 더 넘기고 싶으면 `updatePostAction.bind(null, post.id)` 처럼 첫 인자를 서버에서 미리 묶는다. `edit/page.tsx` 와 `comment-form.tsx` 가 이렇게 한다. 묶인 값은 브라우저가 바꿀 수 없다.
+
+### B-4. 반환값, 에러, 리다이렉트
+
+| 하고 싶은 것 | 방법 | 예 |
+| --- | --- | --- |
+| "성공" 알리기 | `return null` 또는 `{ ok: true }` | `addTodoAction`, `addCommentAction` |
+| 폼 에러 보여 주기 | `return { error: "..." }` 또는 `{ errors: { 필드: [...] } }` | `parseTitle` 실패, Zod 실패 |
+| 값 돌려주기 | 직렬화 가능한 값 `return` | `clearCompletedAction` 이 삭제 개수 반환 → 토스트 |
+| 다른 페이지로 | `redirect("/posts")` | 로그인 성공, 글 작성 성공 |
+| 예상 못 한 실패 | `throw` | 가장 가까운 `error.tsx` 가 잡는다 |
+
+주의 두 가지.
+
+- **`redirect()` 는 예외를 던지는 방식이다.** 그 아래 줄은 실행되지 않는다. `try/catch` 로 감싸면 리다이렉트가 삼켜지므로 조심한다.
+- **반환값은 네트워크를 건넌다.** 클래스 인스턴스, `Map`, 함수는 못 돌려준다. 이 프로젝트의 액션이 전부 평범한 객체나 `null` 을 돌려주는 이유다.
+
+### B-5. 액션 뒤에 화면이 바뀌는 원리
+
+액션이 데이터를 바꾼 것만으로는 화면이 안 바뀐다. **"무엇을 다시 그릴지"** 를 액션이 알려 줘야 한다.
+
+```mermaid
+flowchart LR
+  A["액션 본문<br/>DB 변경"] --> I{"무효화 호출"}
+  I -->|"revalidatePath('/todos')"| P["이 경로를 다시 렌더"]
+  I -->|"updateTag('posts')"| T["이 태그의 'use cache' 를 지움"]
+  I -->|"아무것도 안 함"| X["화면 그대로<br/>(DB 만 바뀜)"]
+  P & T --> R["응답에 새 RSC payload 가 실려 감"]
+  R --> V["브라우저가 새로고침 없이 교체"]
+```
+
+| 액션 | 무효화 | 왜 |
+| --- | --- | --- |
+| `todos/actions.ts` 전부 | `revalidatePath("/todos")` | 할 일 페이지는 캐시가 없어 경로 단위로 다시 그린다 |
+| `createPostAction`, `updatePostAction`, `deletePostAction` | `updateTag("posts")`, `updateTag("post-N")` | 글 목록과 상세가 `"use cache"` 라 태그로 지운다 |
+| `addCommentAction`, `deleteCommentAction` | `updateTag("post-N-comments")` | 댓글 캐시만. 글 본문 캐시는 건드리지 않는다 |
+| `refreshPostsInBackgroundAction` | `revalidateTag("posts", "max")` | 데이터는 그대로, 백그라운드 갱신 비교용 |
+
+`updateTag` 는 **Server Action 안에서만** 부를 수 있다. Route Handler 에서는 `revalidateTag(tag, { expire: 0 })` 를 쓴다 (10장).
+
+### B-6. 보안: Server Action 은 공개 HTTP 엔드포인트다
+
+가장 중요한 부분이다. 액션은 "브라우저가 부를 수 있는 함수" 이므로 **누구나 `curl` 로 POST 할 수 있다.** 화면에서 버튼을 숨기는 것은 아무 보호도 아니다.
+
+```mermaid
+flowchart TB
+  REQ["POST + Next-Action: 〈deletePostAction 의 ID〉<br/>본문: [3]<br/>(버튼이 안 보여도, 로그인 안 했어도 보낼 수 있다)"]
+  REQ --> S1{"① 세션 재검사<br/>getCurrentUser()"}
+  S1 -->|"없음"| E1["{ error: '로그인이 필요합니다.' }"]
+  S1 -->|"있음"| S2{"② 대상 확인<br/>getPost(3) 있나?"}
+  S2 -->|"없음"| E2["{ error: '이미 삭제된 글입니다.' }"]
+  S2 -->|"있음"| S3{"③ 소유자 비교<br/>post.authorId === user.id"}
+  S3 -->|"다름"| E3["{ error: '본인이 작성한 글만…' }"]
+  S3 -->|"같음"| OK["deletePost(3) → updateTag → redirect"]
+```
+
+이 프로젝트의 액션이 지키는 규칙 네 가지.
+
+1. **입력을 다시 검증한다.** `parseTitle`, `parseIds`, Zod `safeParse`. 브라우저에서 온 값은 무엇이든 조작될 수 있다.
+2. **세션을 액션 안에서 다시 읽는다.** 화면에서 이미 확인했더라도 `getCurrentUser()` 를 또 부른다. `react cache()` 덕분에 같은 요청에서는 비용이 없다.
+3. **소유자를 데이터로 확인한다.** `post.authorId === user.id`. 클라이언트가 보낸 "내 글이에요" 는 믿지 않는다.
+4. **헬퍼 함수는 export 하지 않는다.** `"use server"` 파일에서 export 된 함수는 **전부** 엔드포인트가 된다. `parseTitle`, `parseIds`, `imageFrom` 이 export 되지 않은 이유다.
+
+### B-7. Server Action 과 다른 방법 비교
+
+| | Server Action | tRPC 프로시저 | Route Handler (`route.ts`) |
+| --- | --- | --- | --- |
+| 부르는 쪽 | 이 앱의 화면 (폼, 버튼) | 이 앱의 화면 (`useMutation`, `useQuery`) | 브라우저 `fetch`, 외부 프로그램 |
+| URL | 없음 (현재 페이지로 POST, 액션 ID 로 구분) | `/api/trpc/comments.add` | `/api/v1/...` |
+| 메서드 | 항상 POST | query 는 GET, mutation 은 POST | 자유 |
+| 인자와 응답 | 함수 인자와 반환값 (직렬화) | 함수 인자와 반환값 + **타입이 브라우저까지** | `Request` / `Response` |
+| 입력 검증 | 액션 안에서 직접 | `.input(zod)` 가 본문 전에 | `parseJsonBody` |
+| 로그인 검사 | 액션마다 `getCurrentUser()` | `protectedProcedure` 한 곳 | `requireAuth` |
+| 화면 갱신 | `revalidatePath` / `updateTag` → 새 RSC payload | 서버 태그 + 브라우저 `invalidateQueries` (두 층) | 없음 |
+| 캐시 무효화 | `updateTag` 가능 | `revalidateTag(…, { expire: 0 })` (Route Handler 컨텍스트) | 같음 |
+| JS 없이 | 폼이면 동작 | 안 됨 | — |
+| 단위 테스트 | 어렵다 (FormData, 훅에 묶임) | `createCaller` 로 쉽다 | 핸들러 직접 호출 |
+| 이 프로젝트에서 | 할 일, 글, 로그인 | 댓글, 검색, 피드 | `/api/v1` (공개) |
+
+**언제 뭘 쓰나.** 폼 하나로 끝나는 변경(할 일, 글, 로그인, 파일 업로드)은 Server Action 이 가장 단순하다. 변경 뒤 "목록만" 다시 가져오고 싶거나, 같은 저장소의 브라우저 코드가 타입까지 공유해야 한다면 tRPC. 외부 프로그램이 부른다면 Route Handler.
+
+### B-8. 이 프로젝트에서 찾아보기
+
+| 파일 | 액션 | 부르는 곳 | 방법 |
+| --- | --- | --- | --- |
+| `todos/actions.ts` | `addTodoAction` | `add-todo-form.tsx` | ② |
+| | `toggleTodoAction`, `renameTodoAction`, `deleteTodoAction` | `todo-item.tsx` | ③ (rename 은 `<form action={handleRename}>` 안에서 ③) |
+| | `clearCompletedAction` | `clear-completed-button.tsx` | ③, 반환값을 토스트에 |
+| | `bulkSetCompletedAction`, `bulkDeleteAction` | `bulk-action-bar.tsx` | ③, zustand 가 고른 id 배열을 인자로 |
+| `(auth)/actions.ts` | `signupAction`, `loginAction` | `auth-form.tsx` | ②, Zod 필드별 에러 |
+| | `logoutAction` | `user-menu.tsx` (서버 컴포넌트) | ① |
+| `posts/actions.ts` | `createPostAction` | `new-post-form.tsx` → `post-form.tsx` | ②, multipart 로 파일까지 |
+| | `updatePostAction` | `edit/page.tsx` 가 `bind(null, id)` 해서 `post-form.tsx` 에 | ② + `bind` |
+| | `deletePostAction` | `delete-post-button.tsx` | ③ |
+| | `addCommentAction`, `deleteCommentAction` | 파일에는 남아 있지만 화면은 부르지 않는다. 댓글은 tRPC 의 `comments.add` / `comments.remove` 프로시저가 맡는다 (7장) | — (main 과 비교하려고 보존) |
+| | `refreshPostsNowAction`, `refreshPostsInBackgroundAction`, `refreshReleasesAction` | `cache-controls.tsx`, `refresh-button.tsx` | ③, 데이터는 안 바꾸고 캐시만 |
+
+패턴이 보인다. **액션 파일은 "화면 단위" 로 하나씩** (`todos/`, `posts/`, `(auth)/`), 액션은 항상 **검증 → 세션 → 데이터 변경 → 무효화 → 반환 또는 redirect** 순서다.
+
+### B-9. 자주 하는 실수와 스스로 확인하기
+
+1. 컴포넌트 파일 맨 위에 `"use server"` 를 붙이면? → 그 파일의 export 는 전부 `async` 함수여야 한다. 컴포넌트를 export 하면 에러. 액션은 별도 `actions.ts` 에 둔다.
+2. 액션 안에서 `cookies().set(...)` 이 되나? → 된다. `createSession` 이 그렇게 한다. 서버 컴포넌트 **렌더 중** 에는 못 하고, 액션과 Route Handler 에서만 된다.
+3. 액션이 `{ error }` 를 돌려줬는데 화면이 안 바뀐다? → ③ 방식이면 반환값을 직접 받아 토스트를 띄워야 한다. ② 방식이면 `state` 에 들어온다.
+4. 액션에서 `throw new Error("검증 실패")` 를 하면? → `error.tsx` 가 뜬다. 사용자 입력 오류는 `return { error }` 로, 예상 못 한 실패만 `throw`.
+5. 버튼을 안 보이게 했으니 남이 삭제 못 하겠지? → 아니다. B-6. 액션 안에서 다시 검사해야 한다.
+6. 클라이언트 컴포넌트가 액션을 `import` 하면 서버 코드가 브라우저로 가나? → 안 간다. 부록 A 의 import 규칙에서 `"use server"` 파일만은 예외다. 본문 대신 stub 이 들어간다.
+7. `redirect()` 뒤에 `return` 을 써야 하나? → 필요 없다. `redirect()` 가 예외를 던져 함수가 거기서 끝난다.
 
 ---
 
