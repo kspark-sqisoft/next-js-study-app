@@ -838,6 +838,57 @@ flowchart TB
   A1 & A2 & A3 -.->|"throw ApiError"| ERR["④ { error: { code, message } }"]
 ```
 
+### 🚶 흐름 1-1. CORS 헤더 읽는 법
+
+파이프라인 맨 앞의 "CORS 헤더 부착" 이 무슨 뜻인지 풀어 본다. **CORS(Cross-Origin Resource Sharing)** 는 브라우저가 "다른 출처" 로 보내는 요청을 막는 규칙이고, CORS 헤더는 서버가 "이 요청은 허용한다" 고 답하는 응답 헤더다.
+
+**왜 막는가.** 브라우저에는 **같은 출처 정책** 이 있다. 출처(origin)는 프로토콜, 도메인, 포트의 묶음이다. `https://example.com` 페이지의 JS 가 `http://localhost:3000/api/v1/posts` 로 `fetch` 를 보내면 출처가 다르다. 브라우저는 요청을 보내더라도 **응답을 JS 에게 넘기지 않고** 콘솔에 CORS 에러를 띄운다. 남의 사이트가 우리 API 를 몰래 읽어 가는 것을 막는 기본값이다. 이 검사는 **브라우저만** 한다. `curl` 이나 서버끼리의 호출에는 CORS 가 없다.
+
+**서버가 허락하는 방법.** 응답에 헤더를 실어 "이 출처, 이 메서드, 이 헤더는 괜찮다" 고 알려 준다. `src/proxy.ts` 의 `CORS_HEADERS` 가 그것이다.
+
+| 헤더 | 이 앱의 값 | 뜻 |
+| --- | --- | --- |
+| `Access-Control-Allow-Origin` | `*` | 어느 출처의 브라우저든 응답을 읽어도 된다 |
+| `Access-Control-Allow-Methods` | `GET, POST, PATCH, DELETE, OPTIONS` | 허용하는 HTTP 메서드 |
+| `Access-Control-Allow-Headers` | `Content-Type, Authorization` | 요청에 붙여도 되는 헤더 |
+| `Access-Control-Expose-Headers` | `X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, Retry-After` | 브라우저 JS 가 읽을 수 있는 응답 헤더. 기본은 몇 개만 읽힌다 |
+| `Access-Control-Max-Age` | `86400` | 아래 프리플라이트 결과를 하루 동안 기억해 매번 묻지 않게 |
+
+**프리플라이트.** `Authorization` 헤더를 붙이거나 `PATCH`, `DELETE` 를 쓰는 요청은 "단순 요청" 이 아니라서, 브라우저가 본 요청 전에 `OPTIONS` 요청을 먼저 보내 "이렇게 보내도 되나요?" 하고 묻는다. `proxy.ts` 는 `/api/v1` 로 온 `OPTIONS` 를 라우트까지 보내지 않고 그 자리에서 204 와 CORS 헤더로 답한다. 실제 요청은 통과시키되 응답에 헤더만 얹는다.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant J as 다른 사이트의 브라우저 JS<br/>(https://example.com)
+  participant P as proxy.ts
+  participant H as Route Handler
+
+  J->>P: OPTIONS /api/v1/posts<br/>"PATCH 와 Authorization 을 써도 되나요?"
+  P-->>J: 204 + Access-Control-* 헤더 (라우트까지 안 감)
+  Note over J: 허락 확인. 하루 동안(Max-Age) 기억
+  J->>P: POST /api/v1/posts + Authorization: Bearer …
+  P->>H: 통과 (헤더는 나중에 얹는다)
+  H-->>P: 201 { data }
+  P-->>J: 201 + Access-Control-* 헤더 부착
+  Note over J: 헤더가 있으니 브라우저가 응답을 JS 에게 넘긴다
+```
+
+**왜 `*` 로 열어도 안전한가.** 이 API 는 쿠키를 전혀 보지 않고 `Authorization: Bearer` 헤더만 본다. 브라우저는 쿠키는 자동으로 붙이지만 `Authorization` 헤더는 붙이지 않는다. 남의 사이트가 우리 사용자의 브라우저를 시켜 요청을 보내도 토큰이 없어 401 이 된다. 반대로 **쿠키 인증을 함께 받는 API 라면 `*` 는 절대 안 되고**, 허용 도메인을 하나씩 나열하고 `Access-Control-Allow-Credentials: true` 를 켜야 한다. "화면은 쿠키, 공개 API 는 토큰" 으로 인증을 나눈 이유 중 하나다.
+
+**직접 보는 법.**
+
+```bash
+curl -i -X OPTIONS http://localhost:3000/api/v1/posts   # 204 와 Access-Control-* 헤더
+curl -i http://localhost:3000/api/v1/posts               # 200, 같은 헤더가 응답에 붙어 있음
+```
+
+```
+[proxy]   OPTIONS /api/v1/posts → 프리플라이트. 라우트까지 가지 않고 204 + CORS 헤더로 즉시 응답
+[proxy]   POST /api/v1/posts → 통과 (CORS 헤더만 부착, 인증은 Route Handler 가 함)
+```
+
+`curl` 은 CORS 검사를 하지 않으므로 헤더가 없어도 응답을 받는다. 헤더의 효과는 다른 출처의 **브라우저 페이지** 에서 `fetch` 해 봐야 보인다.
+
 ### 🚶 흐름 2: 두 전송 층의 역할 분담
 
 ```mermaid
@@ -1872,6 +1923,8 @@ flowchart TB
 | 토큰 회전 / 재사용 감지 / 가족 | 한 번 쓰면 새 토큰 / 소비된 토큰이 다시 오면 탈취로 봄 / 로그인 한 번 = 가족 하나 | 10장 |
 | 토큰 혼동 | 용도가 다른 토큰이 서로 통용되는 문제. 서명 키를 파생해 분리 | 10장 |
 | CORS / 프리플라이트 | 다른 도메인의 브라우저 요청 허용 규칙 / 본 요청 전의 `OPTIONS` 확인 | 10장 |
+| 같은 출처 정책 (Same-Origin Policy) | 브라우저가 다른 출처(프로토콜·도메인·포트)의 응답을 JS 에게 넘기지 않는 기본 규칙. CORS 헤더로 푼다 | 10장 흐름 1-1 |
+| `Access-Control-Allow-*` 헤더 | 서버가 "이 출처·메서드·헤더는 허용" 이라고 답하는 CORS 응답 헤더. `proxy.ts` 가 붙인다 | 10장 흐름 1-1 |
 | 레이트 리밋 / 고정 윈도 | 시간당 요청 상한 / "N초 창 안에 M회" 방식 | 10장 |
 | 응답 봉투 | `{ data }` / `{ error: { code, message } }` 로 통일한 응답 모양 | 10장 |
 | 멱등 | 두 번 실행해도 결과가 같음 (로그아웃은 항상 204) | 10장 |
