@@ -25,6 +25,8 @@
 | 12 | 한눈에 보는 요약 | — | 무효화 지도, 개념 색인 |
 | 부록 A | 서버 컴포넌트와 클라이언트 컴포넌트, 제대로 이해하기 | — | 경계, 직렬화, 샌드위치 패턴, 오해 세 가지 |
 | 부록 B | Server Action, 제대로 이해하기 | — | stub 과 POST, 부르는 방법 세 가지, 무효화, 공개 엔드포인트로서의 보안 |
+| 부록 C | 페이지가 뜨기까지: prefetch, 클라이언트 이동, RSC payload, 스트리밍, hydration | — | 하드/소프트 내비게이션, 정적 셸, PPR, 클라이언트 캐시 |
+| 부록 D | 용어 사전 | — | 이 책에 나온 말 전부, 한 줄 정의와 위치 |
 
 ---
 
@@ -222,7 +224,7 @@ sequenceDiagram
 
    첫 접속은 쿠키가 없으므로 `null` 이 돌아오고 "로그인 / 회원 가입" 링크가 그려진다.
 4. **홈 페이지** `src/app/page.tsx` 는 요청 데이터를 전혀 읽지 않는 순수 서버 컴포넌트다. 빌드 때 HTML 로 굳어 있다. "할 일 관리" 버튼은 `<Link href="/todos">` 다.
-5. **브라우저에서 hydration.** 클라이언트 컴포넌트인 최근 본 글 배지, `StoreHydrator`, `Toaster` 가 살아난다. `StoreHydrator` 의 `useEffect` 가 zustand persist 스토어를 localStorage 에서 복원한다. 처음이라 비어 있어 배지는 안 보인다.
+5. **브라우저에서 hydration.** 클라이언트 컴포넌트인 최근 본 글 배지, `StoreHydrator`, `Toaster` 가 살아난다. `StoreHydrator` 의 `useEffect` 가 zustand persist 스토어를 localStorage 에서 복원한다. 처음이라 비어 있어 배지는 안 보인다. 첫 방문부터 Link 이동, prefetch, 스트리밍까지 로딩의 전체 여정은 **부록 C** 에, 이 책의 용어는 **부록 D** 에 모아 두었다.
 
 ### 📄 파일
 
@@ -1684,6 +1686,299 @@ flowchart TB
 5. 버튼을 안 보이게 했으니 남이 삭제 못 하겠지? → 아니다. B-6. 액션 안에서 다시 검사해야 한다.
 6. 클라이언트 컴포넌트가 액션을 `import` 하면 서버 코드가 브라우저로 가나? → 안 간다. 부록 A 의 import 규칙에서 `"use server"` 파일만은 예외다. 본문 대신 stub 이 들어간다.
 7. `redirect()` 뒤에 `return` 을 써야 하나? → 필요 없다. `redirect()` 가 예외를 던져 함수가 거기서 끝난다.
+
+---
+
+## 부록 C. 페이지가 뜨기까지: prefetch, 클라이언트 이동, RSC payload, 스트리밍, hydration
+
+이 책 곳곳에 "RSC payload 요청", "정적 셸", "스트리밍", "hydration", "풀 리로드가 아님" 같은 말이 나온다. 여기서 그 말들을 **한 번의 여정** 으로 이어 붙인다. README 의 "왕초보를 위한 개념 잡기" 와 겹치는 부분이 있지만, 이 문서만 읽어도 되도록 다시 적는다.
+
+### C-1. 페이지 로드는 두 종류다
+
+| | 첫 방문 (하드 내비게이션) | Link 이동 (소프트 내비게이션, 클라이언트 이동) |
+| --- | --- | --- |
+| 어떻게 시작되나 | 주소창 입력, 새로고침, 일반 `<a>` 클릭, 외부 링크 | `<Link>` 클릭, `router.push/replace/back` |
+| 브라우저가 받는 것 | **HTML + RSC payload + JS** | **RSC payload 만** (바뀐 세그먼트 분량) |
+| 화면 | 흰 화면 → 서버 HTML 표시 → hydration | 현재 화면 유지, 바뀐 부분만 교체 |
+| 레이아웃 | 새로 그린다 | **유지** (루트 레이아웃, 헤더, Provider 가 살아 있다) |
+| 브라우저 상태 (zustand, 입력 중인 값, 스크롤) | 초기화 | 유지 (스크롤은 위로) |
+| 이 프로젝트에서 보기 | `/posts/3` 을 주소창에 입력 → 전체 상세 페이지 | 목록에서 글 제목 클릭 → 모달 (5장) |
+
+같은 URL 이라도 어느 쪽으로 도착했느냐에 따라 다른 파일이 렌더되는 것(5장의 인터셉팅 라우트)이 이 구분의 극단적인 예다.
+
+```mermaid
+flowchart LR
+  subgraph HARD["첫 방문 (하드)"]
+    H1["주소 입력"] --> H2["서버: 정적 셸 HTML 즉시<br/>+ Suspense 안쪽 스트리밍"] --> H3["브라우저: HTML 표시<br/>→ JS 로드 → hydration"]
+  end
+  subgraph SOFT["Link 이동 (소프트)"]
+    S1["Link 클릭<br/>(뷰포트에 들어왔을 때 이미 prefetch 됐을 수 있음)"] --> S2["서버: 바뀐 세그먼트의<br/>RSC payload 만"] --> S3["브라우저: 레이아웃 유지,<br/>children 자리만 교체, hydration 없음<br/>(클라이언트 컴포넌트는 브라우저에서 바로 렌더)"]
+  end
+```
+
+### C-2. 첫 방문에 브라우저가 받는 세 가지
+
+| 받는 것 | 무엇인가 | 무엇에 쓰나 |
+| --- | --- | --- |
+| **HTML** | 서버가 완성한 첫 화면. "사진" | 즉시 보여 주기. 아직 클릭은 안 됨 |
+| **RSC payload** | 서버 컴포넌트를 실행한 **결과 트리** 를 직렬화한 것. 안에는 ① 서버 컴포넌트가 그린 결과, ② "이 자리에 어떤 클라이언트 컴포넌트를 넣어라" 는 자리표시와 그 JS 파일 참조, ③ 서버가 클라이언트 컴포넌트에 넘긴 props 가 들어 있다 | React 가 서버 트리와 클라이언트 트리를 맞추고, 이후 갱신(액션 뒤, 이동 뒤)에도 이것을 받아 DOM 을 바꾼다 |
+| **JS 번들** | 클라이언트 컴포넌트의 코드만 (부록 A) | hydration 과 이후 상호작용 |
+
+**RSC** 는 React Server Components 의 약자다. "RSC payload" 는 그 렌더 결과를 담은 데이터 형식이고, 브라우저 개발자 도구 Network 탭에서 응답 `Content-Type: text/x-component` 로 구분할 수 있다. 첫 방문에는 HTML 안에 스크립트로 묻혀 오고, Link 이동 때는 URL 에 `?_rsc=…` 가 붙은 별도 요청으로 온다.
+
+이 책에서 "새 RSC payload 가 내려온다" 고 쓴 곳은 전부 이 뜻이다. Server Action 이 끝난 뒤(부록 B), Link 이동 뒤(3장), 캐시 무효화 뒤(4장) 서버는 HTML 이 아니라 이 트리를 보내고, 브라우저는 새로고침 없이 바뀐 부분만 교체한다.
+
+### C-3. 스트리밍과 정적 셸: 서버가 한 번에 다 보내지 않는다
+
+전통적인 서버 렌더링은 페이지 전체가 완성될 때까지 아무것도 보내지 않았다. 느린 쿼리 하나가 전체를 막았다. **스트리밍** 은 준비된 조각부터 순서대로 보내는 방식이고, 그 조각의 경계가 **`<Suspense>`** 다.
+
+```
+시간 →   0ms                      100ms                              1600ms
+서버     ┃ 정적 셸 전송            ┃ 세션·목록 조각 전송               ┃ 1.5초 조각 전송
+         ┃ (레이아웃, 네비,        ┃ (Suspense 경계 ① ② 의 내용)      ┃ (경계 ③)
+         ┃  Suspense fallback 들)  ┃                                   ┃
+브라우저 ┃ 화면 골격 + 스켈레톤     ┃ 스켈레톤 ① ② → 실제 내용 교체     ┃ 스켈레톤 ③ → 교체
+                                  연결은 계속 열려 있고, 조각이 올 때마다 그 자리만 바뀐다
+```
+
+| 용어 | 뜻 | 이 프로젝트에서 |
+| --- | --- | --- |
+| **정적 셸 (static shell)** | 어떤 요청 데이터에도 의존하지 않아 **빌드 때 미리 만들어 둔** 부분. 레이아웃, 네비, 제목, 그리고 Suspense 의 fallback 들 | 홈 카드, `/posts` 의 제목과 버튼, `/todos` 의 `loading.tsx` 스켈레톤 |
+| **Suspense 경계** | "이 안은 늦어도 된다" 는 표시. 각 경계는 독립적인 스트리밍 지점이라 서로 기다리지 않는다 | 글 상세의 네 경계 (5장 타임라인) |
+| **`loading.tsx`** | 그 세그먼트의 page 전체를 자동으로 Suspense 로 감싸는 특수 파일 | `todos/loading.tsx`, `posts/[id]/loading.tsx` |
+| **Partial Prerendering (PPR)** | 한 경로 안에서 정적 셸은 즉시, 동적 부분은 스트리밍으로 섞어 보내는 방식. Cache Components 의 기본 동작이며 빌드 표에 `◐` 로 표시된다 | 이 앱의 거의 모든 페이지 |
+| **프리렌더 (prerender)** | 빌드 때(또는 무효화 뒤 백그라운드에서) 미리 렌더링해 두는 것. 결과는 HTML 과 RSC payload | 정적 셸이 프리렌더의 산물 |
+
+정적 셸에 **들어갈 수 없는** 것이 곧 "요청이 있어야 아는 값" 이다. `cookies()`, `params`, `searchParams`, `connection()` 아래 코드. 그래서 이것들은 반드시 Suspense 안에 있어야 한다는 규칙(2장)이 나온다.
+
+### C-4. hydration: 사진에 생명 붙이기
+
+부록 A-3 에 시간 순서가 있다. 요점만 다시 적으면:
+
+- 서버 HTML 은 보이지만 눌리지 않는다. JS 가 도착해 **같은 컴포넌트를 브라우저에서 다시 실행** 하고 이벤트 핸들러를 붙이는 것이 hydration 이다.
+- 서버 결과와 브라우저 결과가 **같아야** 한다. `localStorage`, 현재 시각, `Math.random()` 처럼 양쪽이 다를 값은 렌더 중이 아니라 `useEffect` 에서 쓴다 (`StoreHydrator`, `post-count.tsx`).
+- Suspense 경계 단위로 hydration 도 나뉜다. 먼저 도착한 조각부터 상호작용이 가능해진다.
+- **Link 이동 때는 hydration 이 없다.** 이미 살아 있는 앱 안에서 트리만 바꾸기 때문이다. 클라이언트 컴포넌트는 서버 HTML 없이 브라우저에서 바로 렌더된다.
+
+**"rehydrate" 는 다른 말이다.** zustand persist 의 `rehydrate()` 는 localStorage 에 저장해 둔 스토어 값을 **불러오는** 것이고, React 의 hydration 과는 무관하다. 이름이 비슷해 헷갈리지만, `StoreHydrator` 는 React hydration 이 끝난 **뒤** 에 zustand rehydrate 를 실행하는 순서 조정 장치다.
+
+### C-5. prefetch: 클릭하기 전에 미리 받아 두기
+
+**prefetch** 는 사용자가 아직 클릭하지 않은 경로를 **미리 받아 두는** 것이다. `<Link>` 가 화면(뷰포트)에 들어오면 Next.js 가 그 경로를 백그라운드에서 요청해 브라우저 메모리에 담아 둔다. 클릭하면 이미 있는 것을 꺼내 쓰므로 이동이 즉시 일어난다.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant U as 사용자
+  participant L as Link href="/todos" (홈 카드)
+  participant R as Next.js 라우터 (브라우저)
+  participant S as 서버
+
+  Note over L: 화면에 보이는 순간 (뷰포트 진입)
+  L->>R: prefetch 예약
+  R->>S: GET /todos?_rsc=… (백그라운드)
+  S-->>R: /todos 의 정적 셸 RSC payload<br/>(레이아웃 + loading.tsx 스켈레톤까지)
+  R->>R: 클라이언트 캐시에 보관
+  U->>L: 클릭
+  R->>R: 캐시에서 꺼내 즉시 스켈레톤 표시 (서버 왕복 없음)
+  R->>S: Suspense 안쪽(목록)만 요청
+  S-->>R: 스트리밍으로 목록 도착 → 스켈레톤 교체
+```
+
+| 규칙 | 내용 |
+| --- | --- |
+| 무엇을 미리 받나 | 그 경로의 **정적 셸** 분량. 요청이 있어야 아는 부분(세션, `connection()` 아래)은 클릭 뒤에 스트리밍된다. `loading.tsx` 가 있으면 그 스켈레톤까지 미리 와서 클릭 즉시 보인다 |
+| 언제 | `<Link>` 가 뷰포트에 들어올 때. 마우스를 올리거나 터치하면 우선순위가 올라간다. 화면 밖으로 나가면 버린다 |
+| 어디에 | 브라우저 메모리의 **클라이언트 캐시** (세그먼트 단위). 형제 경로로 옮길 때 공통 레이아웃은 재사용한다 |
+| 얼마나 | 정적 세그먼트는 기본 5분, 동적 세그먼트는 기본적으로 재사용하지 않는다 (`staleTimes` 설정) |
+| 안 하는 경우 | 일반 `<a>` 태그, `<Link prefetch={false}>`, 그리고 **개발 모드** (`next dev` 에서는 자동 prefetch 가 꺼져 있다) |
+| 이 프로젝트에서 | 홈 카드의 "할 일 관리", 헤더의 "할 일"·"글", 목록의 각 글 제목이 전부 `<Link>` 라 prefetch 대상. 모달 안의 "전체 페이지로 보기" 는 일부러 `<a>` 라 prefetch 도, 클라이언트 이동도 하지 않는다 |
+
+**개발 모드에서 관찰이 안 되는 이유.** `next dev` 는 prefetch 를 하지 않아서 클릭할 때마다 요청이 나간다. prefetch 를 눈으로 보려면 `npm run build && npm run start` 로 프로덕션 서버를 띄우고 Network 탭에서 `_rsc` 요청이 클릭 **전에** 나가는지 본다.
+
+**"prefetch" 라는 말의 두 가지 뜻.** 이 책에서 prefetch 는 위의 **라우트 prefetch** 다. TanStack Query 에도 `prefetchQuery` 라는 **데이터 prefetch** 가 있지만 이 브랜치는 쓰지 않는다. `/feed` 는 서버가 그린 첫 페이지를 `initialData` 로 넘기는 방식이다 (9장).
+
+### C-6. 클라이언트 이동에서 무엇이 남고 무엇이 바뀌나
+
+```mermaid
+flowchart TB
+  subgraph KEEP["유지되는 것 (다시 그리지 않음)"]
+    K1["루트 레이아웃: html, 헤더, Toaster"]
+    K2["QueryProviders 와 그 캐시 ((demos) 안에서 /feed ↔ /releases 이동 시)"]
+    K3["zustand 스토어 값 (모듈 싱글턴)"]
+    K4["공통 조상 레이아웃 (posts/layout.tsx 안에서 /posts ↔ /posts/3)"]
+  end
+  subgraph SWAP["교체되는 것"]
+    W1["바뀐 세그먼트의 page.tsx 와 그 아래"]
+    W2["template.tsx 는 세그먼트가 바뀔 때마다 새로 마운트 ((demos)/template.tsx)"]
+    W3["새 page 의 클라이언트 컴포넌트는 브라우저에서 처음부터 렌더"]
+  end
+  subgraph RERUN["요청마다 다시 실행되는 것"]
+    R1["Suspense 안의 서버 컴포넌트 (세션, connection() 아래)"]
+    R2["'use cache' 는 캐시 HIT 이면 몸체 실행 없이 결과 재사용"]
+  end
+```
+
+- **`router.push` vs `router.replace`**: push 는 히스토리에 쌓이고 replace 는 현재 항목을 바꾼다. 검색창(4장)이 replace 를 쓰는 이유는 키 입력마다 뒤로 가기 항목이 쌓이지 않게 하려는 것이다.
+- **`router.back()`**: 모달을 닫는 데 쓴다 (5장). 모달을 연 것이 곧 URL 이동이었으므로 뒤로 가면 닫힌다.
+- **`useTransition` 으로 감싼 이동**: 새 화면이 준비될 때까지 현재 화면을 유지하고 `isPending` 만 켠다. 검색창이 Suspense fallback 으로 깜빡이지 않는 이유다.
+- **뒤로 가기**: 클라이언트 캐시에 남아 있으면 서버 요청 없이 즉시 복원된다.
+
+### C-7. 전체 여정을 한 그림으로
+
+```mermaid
+flowchart TB
+  A["① 첫 방문: GET /"] --> B["② 정적 셸 HTML 즉시 표시<br/>(빌드 때 프리렌더)"]
+  B --> C["③ Suspense 안쪽 스트리밍<br/>(UserMenu 등)"]
+  B --> D["④ JS 로드 → hydration<br/>클라이언트 컴포넌트가 살아남"]
+  D --> E["⑤ 뷰포트의 Link 들을 prefetch<br/>(프로덕션만)"]
+  E --> F["⑥ Link 클릭 = 클라이언트 이동<br/>레이아웃 유지, 셸은 캐시에서 즉시"]
+  F --> G["⑦ Suspense 안쪽만 서버에서 스트리밍<br/>RSC payload 로 도착"]
+  G --> H["⑧ 폼 제출 = Server Action<br/>revalidate → 응답에 새 RSC payload"]
+  H --> G
+  F --> E
+```
+
+| 단계 | 이 책의 어디 | 터미널·Network 에서 보이는 것 |
+| --- | --- | --- |
+| ② ③ | 2장 | `[render] UserMenu ←`, 응답이 조각으로 도착 |
+| ④ | 부록 A-3 | Sources 탭에 클라이언트 컴포넌트 청크 |
+| ⑤ | 이 부록 C-5 | 프로덕션에서 `?_rsc=` 요청이 클릭 전에 |
+| ⑥ ⑦ | 3장, 5장 | `[render] TodosPage →`, 응답 `text/x-component` |
+| ⑧ | 3장, 부록 B | `[action] …`, `Next-Action` 헤더가 붙은 POST |
+
+### C-8. 스스로 확인하기
+
+1. 주소창에 `/todos` 를 치고 새로고침하면 헤더가 다시 그려지나? → 그렇다. 하드 내비게이션이라 전부 새로 받는다. 홈에서 "할 일 관리" 를 클릭하면 헤더는 그대로다.
+2. 개발 서버에서 Link 위에 마우스를 올려도 요청이 안 나간다. 고장인가? → 아니다. `next dev` 는 자동 prefetch 를 하지 않는다. 프로덕션 빌드에서 확인한다.
+3. 목록에서 글을 클릭했더니 스켈레톤이 먼저 보였다. 무엇이 미리 와 있었나? → `posts/[id]/loading.tsx` 까지의 정적 셸. 본문은 클릭 뒤 스트리밍.
+4. Link 이동 뒤에도 zustand 로 고른 할 일이 그대로 선택되어 있나? → 그렇다. 클라이언트 이동은 브라우저 상태를 유지한다. 새로고침하면 사라진다.
+5. Server Action 응답이 JSON 이 아니라 이상한 형식이다. → RSC payload 다. 반환값과 새 트리가 함께 실려 있다.
+
+---
+
+## 부록 D. 용어 사전: 이 책에 나온 말들
+
+한 줄 정의와 "이 책의 어디" 만 적었다. README 의 용어 사전과 겹치지만, 이 문서만 읽어도 막히지 않도록 다시 모았다.
+
+### 기본 구조
+
+| 용어 | 뜻 | 어디 |
+| --- | --- | --- |
+| App Router | `src/app/` 폴더 구조가 곧 URL 이 되는 Next.js 의 라우팅 방식 | 0장 |
+| 세그먼트 (segment) | URL 을 `/` 로 나눈 한 칸. 폴더 하나가 세그먼트 하나 (`/posts/3` 은 `posts`, `3` 두 세그먼트) | 3장, 5장 |
+| 동적 세그먼트 `[id]` | 어떤 값이 와도 매칭되는 폴더. 값은 `params`(Promise) 로 온다 | 5장 |
+| 라우트 그룹 `(auth)` | URL 에 안 들어가는 폴더. 레이아웃을 묶거나 Provider 범위를 정할 때 | 6장, 9장 |
+| 병렬 라우트 `@modal` | 한 레이아웃이 두 자리(children, modal)를 동시에 그리는 슬롯 | 5장 |
+| 인터셉팅 라우트 `(.)[id]` | 클라이언트 이동일 때만 원래 페이지 대신 가로채 다른 파일을 그림 | 5장 |
+| `layout.tsx` / `template.tsx` | 둘 다 페이지를 감싸지만 layout 은 이동해도 유지, template 은 세그먼트가 바뀔 때마다 새로 마운트 | 2장, 9장 |
+| `loading.tsx` / `error.tsx` / `not-found.tsx` | 세그먼트의 Suspense fallback / Error Boundary / `notFound()` 결과 | 5장 |
+| Route Handler `route.ts` | HTTP 요청을 직접 받아 `Response` 를 돌려주는 파일. REST API 를 만드는 곳 | 3장, 10장 |
+| proxy (`src/proxy.ts`) | 라우트에 닿기 전에 실행되는 함수. 예전 이름 middleware | 6장, 10장 |
+| `next.config.ts` | `cacheComponents`, 리다이렉트 등 앱 전체 설정 | 1장, 5장 |
+
+### 서버와 브라우저
+
+| 용어 | 뜻 | 어디 |
+| --- | --- | --- |
+| 서버 컴포넌트 | 서버에서만 실행되고 결과만 브라우저로 가는 컴포넌트 (기본값) | 부록 A |
+| 클라이언트 컴포넌트 `"use client"` | 코드가 브라우저로 가서 거기서도 실행되는 컴포넌트. 훅과 이벤트가 가능 | 부록 A |
+| Server Action `"use server"` | 브라우저에서 함수처럼 부르는 서버 함수. 실제로는 POST | 부록 B |
+| RSC / RSC payload | React Server Components / 서버 컴포넌트 렌더 결과를 직렬화한 데이터 | 부록 C-2 |
+| 직렬화 (serialize) | 값을 네트워크로 보낼 수 있는 형태(문자열)로 바꾸는 것. 함수나 클래스는 안 된다 | 부록 A-8, B-4 |
+| `server-only` | 이 파일을 클라이언트 번들에 넣으면 빌드를 실패시키는 표시 | 1장 |
+| 번들 / 청크 | 브라우저로 보낼 JS 묶음 / 경로별로 쪼갠 조각. `next/dynamic` 은 별도 청크를 만든다 | 5장, 부록 A |
+| hydration | 서버 HTML 위에 브라우저 JS 가 이벤트와 상태를 붙이는 과정 | 부록 A-3, C-4 |
+| hydration mismatch | 서버가 그린 HTML 과 브라우저 첫 렌더가 달라서 나는 에러 | 부록 A-3 |
+| SSR | 요청마다 서버가 HTML 을 만드는 것. 클라이언트 컴포넌트도 서버에서 한 번 그려진다 | 3장, 부록 A |
+| SSG | 빌드 때 HTML 을 만들어 두는 것 | 2장 (홈) |
+| CSR | 빈 HTML 을 주고 브라우저가 데이터를 받아 그리는 것 | 9장 |
+| ISR | 미리 만들어 두되 수명이 지나거나 태그로 지우면 다시 만드는 것. `"use cache"` + `cacheLife` | 4장 |
+| PPR (Partial Prerendering) | 한 페이지 안에서 정적 셸은 즉시, 동적 부분은 스트리밍. 빌드 표의 `◐` | 부록 C-3 |
+| 정적 셸 | 요청 데이터 없이 빌드 때 만들 수 있는 부분. 레이아웃, 제목, Suspense fallback | 2장, 부록 C-3 |
+| 프리렌더 | 빌드 때 또는 백그라운드에서 미리 렌더링하는 것 | 부록 C-3 |
+| 스트리밍 | 준비된 조각부터 순서대로 보내는 응답 방식. 경계는 Suspense | 5장, 부록 C-3 |
+| Suspense 경계 | "이 안은 늦어도 된다" 는 표시. fallback 을 먼저 보여 준다 | 2장, 5장 |
+| prefetch (라우트) | Link 가 보이면 그 경로의 정적 셸을 미리 받아 두는 것. 프로덕션만 | 부록 C-5 |
+| 클라이언트 이동 (소프트 내비게이션) | Link 로 옮길 때 레이아웃과 상태를 유지하고 바뀐 세그먼트만 교체 | 부록 C-1, C-6 |
+| 클라이언트 캐시 | prefetch 한 RSC payload 를 세그먼트 단위로 담아 두는 브라우저 메모리 | 부록 C-5 |
+| `connection()` | "이 아래는 실제 요청이 온 뒤에 실행하라". 없으면 빌드 때 굳는다 | 3장 |
+| 요청 시점 API | `cookies()`, `headers()`, `params`, `searchParams`. 정적 셸에 못 들어가므로 Suspense 안 | 2장, 4장 |
+| `params` / `searchParams` | 경로의 `[id]` 값 / URL 의 `?q=` 값. Next.js 16 에서 둘 다 Promise | 4장, 5장 |
+
+### 캐시
+
+| 용어 | 뜻 | 어디 |
+| --- | --- | --- |
+| Cache Components | "기본은 캐시 안 함, `"use cache"` 붙인 곳만 캐시" 하는 Next.js 16 모델 | 2장, 4장 |
+| `"use cache"` | 함수 결과를 인자 조합(캐시 키)별로 보관. 안에서 요청 시점 API 를 못 읽는다 | 4장 |
+| `cacheLife("minutes")` | 캐시 수명 프리셋 (seconds, minutes, hours, days, max) | 4장 |
+| `cacheTag("posts")` | 나중에 지울 때 부를 이름. 여러 개 가능 | 4장, 5장 |
+| 캐시 HIT / MISS | 저장된 결과를 그대로 씀 / 몸체를 실행해 새로 만듦. 로그 시각으로 구분 | 4장 |
+| `updateTag` | 즉시 만료. 다음 요청이 새 값을 기다렸다 받음 (Server Action 전용) | 4장, 부록 B-5 |
+| `revalidateTag(tag, "max")` | stale-while-revalidate. 옛 값을 주고 뒤에서 새로 만듦 | 4장 |
+| `revalidateTag(tag, { expire: 0 })` | Route Handler 에서 `updateTag` 대신. 옛 값을 안 주고 바로 새로 만듦 | 10장 |
+| `revalidatePath("/todos")` | 경로 단위 재렌더. 캐시 함수가 없는 페이지용 | 3장 |
+| stale-while-revalidate | "낡은 값을 일단 주고 뒤에서 갱신" 전략 | 4장 |
+| read-your-own-writes | 내가 방금 쓴 것이 바로 보이는 것. `updateTag` 가 보장 | 4장 |
+| react `cache()` | 한 요청 안에서 같은 함수 호출을 한 번만 실행 (`getCurrentUser`) | 6장 |
+| `generateStaticParams` | 빌드 때 미리 만들 동적 세그먼트 값 목록 | 5장 |
+
+### 데이터와 폼
+
+| 용어 | 뜻 | 어디 |
+| --- | --- | --- |
+| 데이터 접근 층 (DAL) | `src/lib/` 의 함수들. SQL 은 여기에만, 세션 확인도 여기(`dal.ts`) | 0장, 6장 |
+| `useActionState` | 폼 ↔ 액션 연결. `[state, formAction, pending]` | 3장, 부록 B-3 |
+| `useTransition` | 액션이나 이동을 감싸 `isPending` 을 얻고 화면 깜빡임을 막음 | 3장, 4장 |
+| `useOptimistic` | 서버 응답 전에 화면을 먼저 바꾸는 낙관적 업데이트 | 3장 |
+| 낙관적 업데이트 | "성공할 것" 으로 보고 먼저 그린 뒤 실제 값으로 동기화 | 3장 |
+| `FormData` | `<form>` 제출 값. `formData.get("title")` | 3장, 부록 B |
+| `bind(null, id)` | 액션의 첫 인자를 서버에서 미리 고정 | 7장, 부록 B-3 |
+| 점진적 향상 | JS 없이도 폼이 동작하고, JS 가 있으면 더 좋아지는 설계 | 3장, 부록 B-3 |
+| Zod / `safeParse` / `flattenError` | 스키마로 입력 검증 / 실패해도 throw 안 함 / 필드별 에러 배열 | 6장, 10장 |
+| 디바운스 | 입력이 멈춘 뒤 일정 시간 지나면 한 번만 실행 | 4장 |
+| 커서 / offset 페이지네이션 | "마지막 id 보다 작은 N개" / "M번째부터 N개". 무한 스크롤은 커서 | 9장 |
+| `use(promise)` | 클라이언트 컴포넌트에서 Promise 를 풀어 읽기. 준비 전이면 suspend | 9장 |
+| `use(io())` | 프리렌더 중에는 suspend, 요청 때는 즉시 통과. TanStack Query 의 `Date.now()` 대책 | 9장 |
+| SWR / TanStack Query | 브라우저 데이터 페칭 라이브러리. 키, 캐시, 재요청, 로딩 상태를 관리 | 9장 |
+| `staleTime` | TanStack Query 에서 "신선" 하다고 보는 시간. 그 안에서는 재요청 안 함 | 9장 |
+| `next/dynamic` + `ssr: false` | 브라우저 전용 컴포넌트를 별도 청크로, 서버 HTML 없이 로드 | 5장 |
+| zustand / `persist` / `useShallow` | 형제 공유 상태 / localStorage 저장 / 객체 선택자의 무한 리렌더 방지 | 3장, 5장 |
+| `skipHydration` + `rehydrate()` | persist 자동 복원을 끄고 마운트 뒤 복원해 hydration 불일치 방지 | 2장 |
+
+### 인증과 보안
+
+| 용어 | 뜻 | 어디 |
+| --- | --- | --- |
+| 인증 / 인가 | 누구인가 확인 / 무엇을 해도 되는가 확인 | 6장 |
+| scrypt + salt | 느린 단방향 해시 + 사용자별 난수. 비밀번호 저장 방식 | 6장 |
+| JWT | 서명된 JSON 토큰. 내용은 누구나 읽지만 위조는 못 함 | 6장, 10장 |
+| stateless 세션 | 서버에 세션 테이블 없이 서명된 쿠키로만 판단 | 6장 |
+| `httpOnly` / `sameSite` / `secure` | JS 로 못 읽음 / 타 사이트 요청에 안 붙음 / https 만 | 6장 |
+| XSS / CSRF | 스크립트 주입으로 탈취 / 타 사이트가 사용자 브라우저를 시켜 요청 | 6장, 10장 |
+| 계정 열거 | "이메일 없음" 과 "비밀번호 틀림" 을 구분해 알려 주면 생기는 정보 노출 | 6장 |
+| `timingSafeEqual` | 비교 시간이 일정한 비교. 응답 시간으로 정보가 새지 않게 | 6장, 10장 |
+| 3겹 방어 | proxy(편의) → 화면(표시) → 액션·API(진짜 검사) | 6장 |
+| Bearer 토큰 | `Authorization: Bearer <토큰>` 헤더 인증. 쿠키와 달리 자동으로 안 붙음 | 10장 |
+| 액세스 / 리프레시 토큰 / API 키 | 짧은 JWT / 회전하는 장기 토큰 / 폐기 가능한 무기한 키 | 10장 |
+| 토큰 회전 / 재사용 감지 / 가족 | 한 번 쓰면 새 토큰 / 소비된 토큰이 다시 오면 탈취로 봄 / 로그인 한 번 = 가족 하나 | 10장 |
+| 토큰 혼동 | 용도가 다른 토큰이 서로 통용되는 문제. 서명 키를 파생해 분리 | 10장 |
+| CORS / 프리플라이트 | 다른 도메인의 브라우저 요청 허용 규칙 / 본 요청 전의 `OPTIONS` 확인 | 10장 |
+| 레이트 리밋 / 고정 윈도 | 시간당 요청 상한 / "N초 창 안에 M회" 방식 | 10장 |
+| 응답 봉투 | `{ data }` / `{ error: { code, message } }` 로 통일한 응답 모양 | 10장 |
+| 멱등 | 두 번 실행해도 결과가 같음 (로그아웃은 항상 204) | 10장 |
+| OpenAPI | 기계가 읽는 API 명세. Swagger UI, 클라이언트 생성에 씀 | 10장 |
+
+### 테스트
+
+| 용어 | 뜻 | 어디 |
+| --- | --- | --- |
+| 단위 / 컴포넌트 / E2E | 함수 하나 / 컴포넌트 렌더와 클릭 / 진짜 브라우저로 전체 흐름 | 11장 |
+| Vitest / Testing Library / Playwright | 테스트 러너 / DOM 질의·이벤트 / 브라우저 자동화 | 11장 |
+| `vi.mock` | 모듈을 통째로 가짜로 바꿈 (`next/headers`, 액션 파일) | 11장 |
+| jsdom / node 환경 | 가짜 DOM / 순수 Node. 파일 맨 위 주석으로 지정 | 11장 |
+| 임시 DB | 테스트 파일마다 별도 SQLite 파일. 개발 DB 를 건드리지 않음 | 11장 |
 
 ---
 
