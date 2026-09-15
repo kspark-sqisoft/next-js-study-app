@@ -231,18 +231,18 @@ sequenceDiagram
   B->>P: GET /
   Note over P: matcher 에 "/" 가 없다<br/>→ 실행되지 않고 통과
   P->>L: 라우트 렌더링 시작
-  L-->>B: 정적 셸 먼저 전송<br/>(html, 헤더, 홈 카드, UserMenu 자리는 fallback)
+  L-->>B: 정적 셸 먼저 전송<br/>(html, 헤더, 홈 타일, UserMenu 자리는 fallback)
   L->>U: Suspense 안에서 렌더
   U->>D: getCurrentUser()
   D->>D: cookies() 에서 "session" 쿠키 → 없음
   D-->>U: null
   U-->>B: "로그인 / 회원 가입" 링크를 스트리밍으로 채움
-  L->>Pg: children 자리에 홈 카드
+  L->>Pg: children 자리에 홈 타일
   Note over B: JS 로드 → hydration<br/>StoreHydrator 가 localStorage 복원
 ```
 
 1. **proxy 는 실행되지 않는다.** `src/proxy.ts` 의 `config.matcher` 는 `/login`, `/signup`, `/posts/:id/edit`, `/api/v1/*` 만 잡는다.
-2. **루트 레이아웃** `src/app/layout.tsx` 가 `<html>`, `<body>`, 상단 헤더를 그린다. 오른쪽 사용자 메뉴만 `<Suspense>` 로 감싸져 있다.
+2. **루트 레이아웃** `src/app/layout.tsx` 가 `<html>`, `<body>`, 상단 헤더(`src/components/site-header.tsx`)를 그린다. 헤더에 "할 일", "글" 링크와 테마 토글이 있고, 세션을 읽는 사용자 메뉴만 `<Suspense>` 로 감싸져 있다. 전체는 `ThemeProvider`(클라이언트) 안에 있지만 헤더와 페이지는 여전히 서버 컴포넌트다 (부록 A-7).
 3. **사용자 메뉴** `src/components/user-menu.tsx` 는 서버 컴포넌트다. 아래 체인으로 로그인 여부를 확인한다. 마지막 줄이 main 과 다르다.
 
    ```
@@ -262,7 +262,10 @@ sequenceDiagram
 | 파일 | 종류 | 역할 |
 | --- | --- | --- |
 | `src/app/layout.tsx` | 서버 | 모든 페이지의 껍데기. 페이지를 옮겨도 다시 그려지지 않는다 |
-| `src/app/page.tsx` | 서버 | 홈 카드. 데이터 없음 → 정적 |
+| `src/app/page.tsx` | 서버 | 홈. 실험실 타일 6개. 데이터 없음 → 정적 |
+| `src/components/site-header.tsx` | 서버 | 헤더. 브랜드, 섹션 네비, 테마 토글, `UserMenu`(Suspense) |
+| `src/components/nav-link.tsx` | 클라이언트 | `usePathname` 으로 현재 섹션에 `aria-current` 와 밑줄 |
+| `src/components/theme-provider.tsx`, `theme-toggle.tsx` | 클라이언트 | `next-themes`. `<html class="dark">` 를 붙였다 떼고, 해/달 버튼으로 전환 |
 | `src/components/user-menu.tsx` | 서버 | 세션을 읽는 유일한 헤더 부품 |
 | `src/lib/users.ts` | 서버 전용 | `findUserById` 가 async. NaN 이 들어오면 Prisma 가 거부하므로 먼저 `Number.isInteger` 로 거른다 |
 | `src/components/store-hydrator.tsx` | 클라이언트 | 마운트 후 `rehydrate()` 호출 |
@@ -310,7 +313,7 @@ sequenceDiagram
   participant PC as Prisma Client
   participant DB as SQLite
 
-  B->>Pg: "할 일 관리" Link 클릭<br/>(풀 리로드 아님, RSC payload 요청)
+  B->>Pg: 홈의 "할 일" 타일(Link) 클릭<br/>(풀 리로드 아님, RSC payload 요청)
   Ld-->>B: 스켈레톤 먼저 표시<br/>(loading.tsx = 이 세그먼트의 Suspense 경계)
   Pg->>T: await getTodos()
   T->>T: await connection()<br/>"요청이 들어온 뒤에 실행하라"
@@ -1541,6 +1544,7 @@ flowchart TB
 | --- | --- | --- |
 | `(demos)/layout.tsx` | `QueryProviders` (TanStack Provider) | 각 데모 `page.tsx` (서버) |
 | `posts/@modal/(.)[id]/page.tsx` | `RouteModal` (Dialog) | 글 본문, 이미지, 링크 (서버가 렌더) |
+| `app/layout.tsx` | `ThemeProvider` (next-themes Context) | 헤더(`site-header.tsx`)와 모든 `page.tsx` (서버) |
 | `posts/[id]/comments-section.tsx` | `ReplyToggle` (열고 닫기) | `CommentForm` (이것도 클라이언트지만, 부모가 만든 것을 그대로 통과시키는 같은 원리) |
 
 ### A-8. props 규칙: 넘길 수 있는 것
@@ -1577,6 +1581,10 @@ flowchart TB
 | `components/modal.tsx` | 클라이언트 | `useRouter().back()`, Dialog 열림/닫힘 |
 | `components/store-hydrator.tsx` | 클라이언트 | `useEffect` 로 localStorage 복원. 화면에는 아무것도 안 그림 |
 | `posts/[id]/recently-viewed.tsx` | 클라이언트 + `ssr: false` | localStorage 를 렌더 중에 읽으므로 서버에서 아예 안 그린다 |
+| `components/site-header.tsx` | 서버 | 구조만. 클릭이 필요한 자식(테마 토글, NavLink)은 클라이언트로 분리 |
+| `components/nav-link.tsx` | 클라이언트 | `usePathname` 은 브라우저 URL 을 읽는 훅 |
+| `components/theme-toggle.tsx` | 클라이언트 | `onClick`, `useTheme`. 아이콘은 CSS `dark:` 로 바꿔 hydration 불일치를 피한다 |
+| `components/theme-provider.tsx` | 클라이언트 | Context Provider 는 클라이언트여야 한다. children(헤더, 페이지)은 서버 그대로 |
 
 패턴이 보인다. **"읽고 그리는 것" 은 서버, "누르고 바꾸는 것" 은 클라이언트.** 그리고 서버 컴포넌트는 되도록 크게, 클라이언트 컴포넌트는 되도록 작게.
 
@@ -1835,7 +1843,7 @@ flowchart LR
 
 | 용어 | 뜻 | 이 프로젝트에서 |
 | --- | --- | --- |
-| **정적 셸 (static shell)** | 어떤 요청 데이터에도 의존하지 않아 **빌드 때 미리 만들어 둔** 부분. 레이아웃, 네비, 제목, 그리고 Suspense 의 fallback 들 | 홈 카드, `/posts` 의 제목과 버튼, `/todos` 의 `loading.tsx` 스켈레톤 |
+| **정적 셸 (static shell)** | 어떤 요청 데이터에도 의존하지 않아 **빌드 때 미리 만들어 둔** 부분. 레이아웃, 네비, 제목, 그리고 Suspense 의 fallback 들 | 홈 타일, `/posts` 의 제목과 버튼, `/todos` 의 `loading.tsx` 스켈레톤 |
 | **Suspense 경계** | "이 안은 늦어도 된다" 는 표시. 각 경계는 독립적인 스트리밍 지점이라 서로 기다리지 않는다 | 글 상세의 네 경계 (5장 타임라인) |
 | **`loading.tsx`** | 그 세그먼트의 page 전체를 자동으로 Suspense 로 감싸는 특수 파일 | `todos/loading.tsx`, `posts/[id]/loading.tsx` |
 | **Partial Prerendering (PPR)** | 한 경로 안에서 정적 셸은 즉시, 동적 부분은 스트리밍으로 섞어 보내는 방식. Cache Components 의 기본 동작이며 빌드 표에 `◐` 로 표시된다 | 이 앱의 거의 모든 페이지 |
@@ -1862,7 +1870,7 @@ flowchart LR
 sequenceDiagram
   autonumber
   participant U as 사용자
-  participant L as Link href="/todos" (홈 카드)
+  participant L as Link href="/todos" (홈의 "할 일" 타일)
   participant R as Next.js 라우터 (브라우저)
   participant S as 서버
 
@@ -1884,7 +1892,7 @@ sequenceDiagram
 | 어디에 | 브라우저 메모리의 **클라이언트 캐시** (세그먼트 단위). 형제 경로로 옮길 때 공통 레이아웃은 재사용한다 |
 | 얼마나 | 정적 세그먼트는 기본 5분, 동적 세그먼트는 기본적으로 재사용하지 않는다 (`staleTimes` 설정) |
 | 안 하는 경우 | 일반 `<a>` 태그, `<Link prefetch={false}>`, 그리고 **개발 모드** (`next dev` 에서는 자동 prefetch 가 꺼져 있다) |
-| 이 프로젝트에서 | 홈 카드의 "할 일 관리", 헤더의 "할 일"·"글", 목록의 각 글 제목이 전부 `<Link>` 라 prefetch 대상. 모달 안의 "전체 페이지로 보기" 는 일부러 `<a>` 라 prefetch 도, 클라이언트 이동도 하지 않는다 |
+| 이 프로젝트에서 | 홈의 실험실 타일 6개, 헤더의 "할 일"·"글", 목록의 각 글 제목이 전부 `<Link>` 라 prefetch 대상. 모달 안의 "전체 페이지로 보기" 는 일부러 `<a>` 라 prefetch 도, 클라이언트 이동도 하지 않는다 |
 
 **개발 모드에서 관찰이 안 되는 이유.** `next dev` 는 prefetch 를 하지 않아서 클릭할 때마다 요청이 나간다. prefetch 를 눈으로 보려면 `npm run build && npm run start` 로 프로덕션 서버를 띄우고 Network 탭에서 `_rsc` 요청이 클릭 **전에** 나가는지 본다.
 
@@ -1941,7 +1949,7 @@ flowchart TB
 
 ### C-8. 스스로 확인하기
 
-1. 주소창에 `/todos` 를 치고 새로고침하면 헤더가 다시 그려지나? → 그렇다. 하드 내비게이션이라 전부 새로 받는다. 홈에서 "할 일 관리" 를 클릭하면 헤더는 그대로다.
+1. 주소창에 `/todos` 를 치고 새로고침하면 헤더가 다시 그려지나? → 그렇다. 하드 내비게이션이라 전부 새로 받는다. 홈에서 "할 일" 타일을 클릭하면 헤더는 그대로다.
 2. 개발 서버에서 Link 위에 마우스를 올려도 요청이 안 나간다. 고장인가? → 아니다. `next dev` 는 자동 prefetch 를 하지 않는다. 프로덕션 빌드에서 확인한다.
 3. 목록에서 글을 클릭했더니 스켈레톤이 먼저 보였다. 무엇이 미리 와 있었나? → `posts/[id]/loading.tsx` 까지의 정적 셸. 본문은 클릭 뒤 스트리밍.
 4. Link 이동 뒤에도 zustand 로 고른 할 일이 그대로 선택되어 있나? → 그렇다. 클라이언트 이동은 브라우저 상태를 유지한다. 새로고침하면 사라진다.
@@ -2044,6 +2052,7 @@ flowchart TB
 | `next/dynamic` + `ssr: false` | 브라우저 전용 컴포넌트를 별도 청크로, 서버 HTML 없이 로드 | 5장 |
 | zustand / `persist` / `useShallow` | 형제 공유 상태 / localStorage 저장 / 객체 선택자의 무한 리렌더 방지 | 3장, 5장 |
 | `skipHydration` + `rehydrate()` | persist 자동 복원을 끄고 마운트 뒤 복원해 hydration 불일치 방지 | 2장 |
+| `next-themes` / `suppressHydrationWarning` | 라이트·다크 테마를 `<html class>` 로 전환하는 라이브러리 / 서버 HTML 과 그 속성 하나가 달라도 경고하지 않게 하는 표시 | 2장 |
 
 ### 인증과 보안
 
@@ -2111,7 +2120,7 @@ flowchart TB
 
 | 방식 | HTML 을 언제 만드나 | Next.js 16 용어 | 코드에서 결정하는 것 | 이 앱의 예 | 빌드 표 |
 | --- | --- | --- | --- | --- | --- |
-| **SSG** (Static Site Generation) | 빌드 때 1회 | 정적 렌더링, 프리렌더 | 요청 시점 API 를 **안 읽는다** | 홈 카드, `/api/v1`, `/api/v1/openapi.json`, `generateStaticParams` 가 미리 만든 `/posts/1`, `/posts/2` | `○` 또는 `◐` 의 셸 부분 |
+| **SSG** (Static Site Generation) | 빌드 때 1회 | 정적 렌더링, 프리렌더 | 요청 시점 API 를 **안 읽는다** | 홈 페이지, `/api/v1`, `/api/v1/openapi.json`, `generateStaticParams` 가 미리 만든 `/posts/1`, `/posts/2` | `○` 또는 `◐` 의 셸 부분 |
 | **SSR** (Server-Side Rendering) | 요청마다 | 동적 렌더링 | `connection()`, `cookies()`, `params`, `searchParams` 를 읽는다 | `/todos` 목록, `UserMenu`, `PostOwnerActions`, `OtherPosts` | `◐` 의 Suspense 안쪽, `ƒ` |
 | **CSR** (Client-Side Rendering) | 브라우저에서 JS 실행 후 | 클라이언트 컴포넌트 + 브라우저 페칭 | `"use client"` + `useEffect` / SWR / TanStack Query | `/client-fetch` 의 검색 결과, `/feed` 의 2페이지부터, 최근 본 글(`ssr: false`) | `◐` (뼈대만 정적) |
 | **ISR** (Incremental Static Regeneration) | 빌드(또는 첫 요청) 때 만들고, 수명이 지나거나 태그로 지우면 다시 | `"use cache"` + `cacheLife` + `cacheTag` | 캐시 함수 | `/posts` 목록(minutes), `/posts/[id]` 본문(hours), `/releases`(hours) | `◐` + `Revalidate 1m / 1h` |
@@ -2124,7 +2133,7 @@ flowchart TB
 ```mermaid
 flowchart TB
   subgraph PAGE["/posts/3 한 페이지"]
-    SHELL["정적 셸 — SSG<br/>레이아웃, 네비, 스켈레톤<br/>(빌드 때 HTML)"]
+    SHELL["정적 셸 — SSG<br/>레이아웃, 헤더, 스켈레톤<br/>(빌드 때 HTML)"]
     BODY["글 본문 — ISR<br/>getPost(3) 'use cache' hours<br/>(첫 요청 때 만들고 캐시)"]
     OWN["수정·삭제 버튼 — SSR<br/>getCurrentUser() 요청마다"]
     CMT["댓글 — ISR + SSR<br/>목록은 캐시, 내 댓글 표시는 요청마다"]
@@ -2140,10 +2149,10 @@ flowchart TB
 
 | | 빌드 때 (SSG) | 요청 때 (SSR) | 브라우저에서 (CSR) |
 | --- | --- | --- | --- |
-| **서버 컴포넌트** | 홈 카드, 정적 셸 | `/todos` 목록, `UserMenu` | 불가능 (브라우저에 코드가 없다) |
+| **서버 컴포넌트** | 홈 타일, 정적 셸 | `/todos` 목록, `UserMenu` | 불가능 (브라우저에 코드가 없다) |
 | **클라이언트 컴포넌트** | 초기 HTML 은 빌드 때 그려짐 (`TodoItem` 의 첫 모습도 셸에 있음) | 초기 HTML 은 요청 때 그려짐 | hydration 뒤 상호작용, `useEffect` 페칭, `ssr: false` |
 
-- "서버 컴포넌트 = SSR" 이 아니다. 홈 카드는 서버 컴포넌트이면서 SSG 다.
+- "서버 컴포넌트 = SSR" 이 아니다. 홈 페이지는 서버 컴포넌트이면서 SSG 다.
 - "클라이언트 컴포넌트 = CSR" 도 아니다. `TodoItem` 은 서버에서 한 번 HTML 로 그려진다(SSR). 순수 CSR 은 `ssr: false` 로 로드하는 최근 본 글뿐이다.
 - **RSC payload** 는 RSC 의 렌더 결과를 담은 데이터 형식이다 (부록 C-2). 캐시 층에서도 이 형식으로 저장된다.
 

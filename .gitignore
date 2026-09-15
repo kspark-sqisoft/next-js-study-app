@@ -57,3 +57,6 @@ next-env.d.ts
 
 # prisma generate 산출물 (npm install 시 postinstall 로 다시 생성)
 /src/generated/
+
+# Playwright MCP 스크린샷 (로컬 확인용)
+.playwright-mcp/

@@ -2,12 +2,13 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
+/* next-themes 가 <html class="dark"> 를 붙이면 아래 .dark 변수와 `dark:` 변형이 켜진다 */
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
+  --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);
@@ -48,83 +49,109 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/*
+ * 색 토큰. "종이 위의 잉크" 를 기준으로 잡았다.
+ * - 라이트: 아주 옅은 종이색 바탕(순백 아님), 파란 기가 도는 잉크 검정 글자, 만년필 잉크 파랑 강조.
+ * - 다크:   청회색 슬레이트 바탕(순흑 아님), 종이색 글자, 같은 잉크 계열의 밝은 파랑 강조.
+ * 회색 계열도 무채색이 아니라 강조색과 같은 색상(hue 265) 을 아주 조금 섞어 한 팔레트로 읽히게 했다.
+ * oklch(명도 채도 색상): 명도 0~1, 채도 0 이면 회색, 색상 265 = 파랑, 95 = 종이색 노랑.
+ */
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  --background: oklch(0.985 0.004 95);
+  --foreground: oklch(0.22 0.02 265);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.22 0.02 265);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --popover-foreground: oklch(0.22 0.02 265);
+  --primary: oklch(0.45 0.16 265);
+  --primary-foreground: oklch(0.985 0.005 95);
+  --secondary: oklch(0.95 0.01 265);
+  --secondary-foreground: oklch(0.3 0.03 265);
+  --muted: oklch(0.955 0.006 95);
+  --muted-foreground: oklch(0.5 0.025 265);
+  --accent: oklch(0.94 0.02 265);
+  --accent-foreground: oklch(0.25 0.03 265);
+  --destructive: oklch(0.55 0.2 27);
+  --border: oklch(0.9 0.01 265);
+  --input: oklch(0.88 0.012 265);
+  --ring: oklch(0.6 0.14 265);
+  --chart-1: oklch(0.45 0.16 265);
+  --chart-2: oklch(0.6 0.12 265);
+  --chart-3: oklch(0.72 0.08 265);
+  --chart-4: oklch(0.55 0.15 200);
+  --chart-5: oklch(0.65 0.15 60);
+  --radius: 0.75rem;
+  --sidebar: oklch(0.975 0.005 95);
+  --sidebar-foreground: oklch(0.22 0.02 265);
+  --sidebar-primary: oklch(0.45 0.16 265);
+  --sidebar-primary-foreground: oklch(0.985 0.005 95);
+  --sidebar-accent: oklch(0.94 0.02 265);
+  --sidebar-accent-foreground: oklch(0.25 0.03 265);
+  --sidebar-border: oklch(0.9 0.01 265);
+  --sidebar-ring: oklch(0.6 0.14 265);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --background: oklch(0.18 0.015 265);
+  --foreground: oklch(0.94 0.01 95);
+  --card: oklch(0.22 0.015 265);
+  --card-foreground: oklch(0.94 0.01 95);
+  --popover: oklch(0.22 0.015 265);
+  --popover-foreground: oklch(0.94 0.01 95);
+  --primary: oklch(0.75 0.11 265);
+  --primary-foreground: oklch(0.16 0.02 265);
+  --secondary: oklch(0.28 0.02 265);
+  --secondary-foreground: oklch(0.92 0.01 95);
+  --muted: oklch(0.26 0.015 265);
+  --muted-foreground: oklch(0.7 0.02 265);
+  --accent: oklch(0.3 0.03 265);
+  --accent-foreground: oklch(0.94 0.01 95);
+  --destructive: oklch(0.7 0.17 25);
+  --border: oklch(1 0 0 / 11%);
+  --input: oklch(1 0 0 / 14%);
+  --ring: oklch(0.7 0.11 265);
+  --chart-1: oklch(0.75 0.11 265);
+  --chart-2: oklch(0.62 0.12 265);
+  --chart-3: oklch(0.5 0.1 265);
+  --chart-4: oklch(0.7 0.12 200);
+  --chart-5: oklch(0.75 0.13 60);
+  --sidebar: oklch(0.2 0.015 265);
+  --sidebar-foreground: oklch(0.94 0.01 95);
+  --sidebar-primary: oklch(0.75 0.11 265);
+  --sidebar-primary-foreground: oklch(0.16 0.02 265);
+  --sidebar-accent: oklch(0.3 0.03 265);
+  --sidebar-accent-foreground: oklch(0.94 0.01 95);
+  --sidebar-border: oklch(1 0 0 / 11%);
+  --sidebar-ring: oklch(0.7 0.11 265);
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
+  html {
+    @apply font-sans;
+    /* 브라우저 기본 위젯(스크롤바, 체크박스, 날짜 입력)도 테마를 따르게 */
+    color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
   body {
     @apply bg-background text-foreground;
   }
-  html {
-    @apply font-sans;
+  h1,
+  h2,
+  h3 {
+    @apply tracking-tight;
+  }
+  ::selection {
+    background: color-mix(in oklch, var(--primary) 22%, transparent);
+  }
+  /* 움직임을 줄이도록 설정한 사용자에게는 진입 애니메이션을 끈다 ((demos)/template.tsx) */
+  @media (prefers-reduced-motion: reduce) {
+    .animate-in {
+      animation: none;
+    }
   }
 }
