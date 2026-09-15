@@ -13,21 +13,25 @@ export async function UserMenu() {
 
   if (!user) {
     return (
-      <div className="flex items-center gap-2 text-sm">
-        <Link href="/login" className="hover:underline">로그인</Link>
-        <Link href="/signup" className="hover:underline">회원 가입</Link>
+      <div className="flex items-center gap-1 text-sm">
+        <Button variant="ghost" size="sm" nativeButton={false} render={<Link href="/login" />}>
+          로그인
+        </Button>
+        <Button variant="outline" size="sm" nativeButton={false} render={<Link href="/signup" />}>
+          회원 가입
+        </Button>
       </div>
     );
   }
 
   return (
-    <div className="flex items-center gap-3 text-sm">
-      <span>
-        <strong>{user.name}</strong> 님
+    <div className="flex items-center gap-2 text-sm">
+      <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-primary">
+        <strong className="font-medium">{user.name}</strong> 님
       </span>
       {/* 서버 컴포넌트에서는 onClick 을 쓸 수 없으므로 form action 으로 Server Action 을 호출한다 */}
       <form action={logoutAction}>
-        <Button type="submit" size="sm" variant="outline">로그아웃</Button>
+        <Button type="submit" size="sm" variant="ghost">로그아웃</Button>
       </form>
     </div>
   );

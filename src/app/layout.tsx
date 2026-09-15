@@ -1,14 +1,12 @@
 // 루트 레이아웃. 모든 페이지를 감싸는 최상위 컴포넌트로 <html>, <body> 를 여기서 정의한다.
 // 페이지 이동 시 다시 렌더링되지 않고 유지된다.
 import type { Metadata } from "next";
-import { Suspense } from "react";
-import Link from "next/link";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css"; // Tailwind 및 전역 스타일
-import { RecentlyViewedBadge } from "@/components/recently-viewed-badge";
+import { SiteHeader } from "@/components/site-header";
 import { StoreHydrator } from "@/components/store-hydrator";
+import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
-import { UserMenu } from "@/components/user-menu";
 
 // Google Fonts 를 빌드 시 다운로드해 셀프 호스팅. CSS 변수로 노출된다.
 const geistSans = Geist({
@@ -30,30 +28,29 @@ export const metadata: Metadata = {
 // children 자리에 현재 경로의 page.tsx 가 들어온다.
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
+    // suppressHydrationWarning: next-themes 가 브라우저에서 <html class="dark"> 를 붙이므로
+    // 서버 HTML 과 첫 렌더가 이 속성 하나만 다르다. 그 차이는 무시하라고 알린다 (이 요소 한 단계에만 적용).
     <html
       lang="ko"
+      suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">
-        <header className="flex items-center justify-between border-b px-6 py-3">
-          <nav className="flex items-center gap-4 text-sm">
-            <Link href="/" className="font-semibold">Next.js Study</Link>
-            <Link href="/todos" className="hover:underline">할 일</Link>
-            <Link href="/posts" className="hover:underline">
-              글<RecentlyViewedBadge />
-            </Link>
-          </nav>
-          {/* 세션을 읽는 부분만 Suspense 로 감싼다. 레이아웃 최상위에서 세션을 await 하면
-              모든 페이지가 세션 확인을 기다리게 되므로 반드시 컴포넌트 안으로 밀어 넣는다. */}
-          <Suspense fallback={<div className="h-8 w-24" />}>
-            <UserMenu />
-          </Suspense>
-        </header>
-        {children}
-        {/* 토스트 알림 표시 영역. 어디서든 toast() 를 호출하면 여기에 뜬다. */}
-        <Toaster />
-        {/* persist 스토어(최근 본 글)를 마운트 후 localStorage 에서 복원 */}
-        <StoreHydrator />
+      <body className="flex min-h-full flex-col">
+        {/* 테마 Provider 는 클라이언트 컴포넌트지만, 안의 헤더와 페이지는 여전히 서버 컴포넌트다 (children 샌드위치) */}
+        <ThemeProvider>
+          <SiteHeader />
+          {children}
+          <footer className="mt-auto border-t border-border/70">
+            <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-2 px-6 py-4 text-xs text-muted-foreground">
+              <span>Next.js 16 학습용 실험실</span>
+              <span>설명서는 README 와 docs/CODE_WALKTHROUGH.md 에 있다</span>
+            </div>
+          </footer>
+          {/* 토스트 알림 표시 영역. 어디서든 toast() 를 호출하면 여기에 뜬다. */}
+          <Toaster />
+          {/* persist 스토어(최근 본 글)를 마운트 후 localStorage 에서 복원 */}
+          <StoreHydrator />
+        </ThemeProvider>
       </body>
     </html>
   );
