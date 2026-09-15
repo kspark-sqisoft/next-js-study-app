@@ -204,6 +204,8 @@ DB 명령 한눈에:
 
 **`server-only`.** 이 한 줄을 import 한 파일을 클라이언트 컴포넌트가 import 하면 빌드가 실패한다. Prisma Client 가 브라우저 번들에 들어가는 것을 막는다.
 
+**휴대폰에서 개발 서버를 볼 때.** Next.js 16 개발 서버는 `allowedDevOrigins` 에 없는 호스트(예: 휴대폰이 접속한 `192.168.x.x`)에서 오는 `/_next/*` 요청을 403 으로 막는다. 페이지 HTML 은 보이지만 hydration 이 일어나지 않아 테마 토글, 체크박스, 클라이언트 페칭처럼 JS 가 필요한 것이 전부 죽는다. 링크와 폼은 JS 없이도 동작해 멀쩡해 보이므로 원인을 찾기 어렵다. `next.config.ts` 에 사설 IP 대역과 `*.local` 을 허용해 두었다. 프로덕션(`next start`)에는 이 검사가 없다.
+
 ### 🔍 터미널에서 보기
 
 `db:migrate` 를 안 하고 dev 를 켜면 첫 쿼리에서 "no such table" 류의 Prisma 에러가 난다. `SESSION_SECRET` 이 없으면 main 과 같은 에러가 난다.
@@ -241,7 +243,7 @@ sequenceDiagram
   Note over B: JS 로드 → hydration<br/>StoreHydrator 가 localStorage 복원
 ```
 
-1. **proxy 는 실행되지 않는다.** `src/proxy.ts` 의 `config.matcher` 는 `/login`, `/signup`, `/posts/:id/edit`, `/api/v1/*` 만 잡는다.
+1. **proxy 는 실행되지 않는다.** `src/proxy.ts` 의 `config.matcher` 는 `/login`, `/signup`, `/posts/:id/edit`, `/profile`, `/api/v1/*` 만 잡는다.
 2. **루트 레이아웃** `src/app/layout.tsx` 가 `<html>`, `<body>`, 상단 헤더(`src/components/site-header.tsx`)를 그린다. 헤더에 "할 일", "글" 링크와 테마 토글이 있고, 세션을 읽는 사용자 메뉴만 `<Suspense>` 로 감싸져 있다. 전체는 `ThemeProvider`(클라이언트) 안에 있지만 헤더와 페이지는 여전히 서버 컴포넌트다 (부록 A-7).
 3. **사용자 메뉴** `src/components/user-menu.tsx` 는 서버 컴포넌트다. 아래 체인으로 로그인 여부를 확인한다. 마지막 줄이 main 과 다르다.
 
@@ -760,15 +762,60 @@ flowchart TB
 
 | 어디 | 파일 | 무엇을 하나 | 실패 시 |
 | --- | --- | --- | --- |
-| 프록시 | `src/proxy.ts` | `/posts/:id/edit` 비로그인 → `/login`. 로그인 상태로 `/login`, `/signup` → `/posts` | 리다이렉트 |
+| 프록시 | `src/proxy.ts` | `/posts/:id/edit`, `/profile` 비로그인 → `/login`. 로그인 상태로 `/login`, `/signup` → `/posts` | 리다이렉트 |
 | 헤더 | `src/components/user-menu.tsx` | 이름 표시, 로그아웃 폼 | 로그인/가입 링크 |
 | 글 목록 | `src/app/posts/page.tsx` `NewPostSection` | 로그인 시 글쓰기 폼 | "로그인하세요" |
 | 글 상세 | `src/app/posts/[id]/post-owner-actions.tsx` | 작성자면 수정·삭제 버튼 | 안내 문구 |
 | 글 수정 페이지 | `src/app/posts/[id]/edit/page.tsx` | `requireUser()`, 작성자 비교 | redirect |
+| 프로필 페이지 | `src/app/profile/page.tsx` | `requireUser()`. 이름·아바타 수정 폼 | `/login` 으로 redirect |
+| 프로필 액션 | `src/app/profile/actions.ts` | `getCurrentUser()` 로 본인 확인 뒤 `updateUserProfile`. 아바타는 글 이미지와 같은 업로드 규칙 | redirect 또는 에러 객체 |
 | 댓글 영역 | `src/app/posts/[id]/comments-section.tsx` | 내 댓글에 삭제 버튼, 로그인 시 폼 | "로그인하세요" |
 | 글·댓글 액션 | `src/app/posts/actions.ts` | 작성: 로그인. 수정·삭제: 작성자 | `redirect("/login")` 또는 에러 객체 |
 | 공개 API | `src/lib/api/auth.ts` | Bearer 토큰 → `Principal` | 401 / 403 JSON |
 | 할 일 | `src/app/todos/actions.ts` | **검사 없음** | 소유자 개념이 없는 공유 목록 |
+
+### 🚶 흐름 4: 프로필 수정 (이름과 아바타)
+
+로그인한 사용자가 헤더의 이름을 누르면 `/profile` 로 간다. 이 페이지는 인증 3층이 한 화면에 모두 나타나는 예다.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant U as 사용자
+  participant P as proxy.ts
+  participant PG as profile/page.tsx (서버)
+  participant F as ProfileForm (브라우저)
+  participant A as updateProfileAction
+  participant UP as lib/uploads.ts
+  participant US as lib/users.ts
+  participant K as 캐시
+
+  U->>P: GET /profile (헤더 이름 클릭)
+  P->>P: 쿠키 없으면 /login 으로 (1층, 낙관적)
+  P->>PG: 통과
+  PG->>PG: requireUser() → 없으면 redirect (2층)
+  PG-->>F: user { name, email, avatarPath } props
+  U->>F: 이름 수정, 파일 선택, 저장
+  F->>A: updateProfileAction(prev, FormData) — multipart POST
+  A->>A: getCurrentUser() 다시 확인 (3층), profileSchema 로 이름 검증
+  A->>UP: saveImage(파일) — 글 이미지와 같은 규칙 (UUID, 2MB)
+  UP-->>A: { name } 또는 { error }
+  A->>UP: deleteImage(옛 아바타)
+  A->>US: updateUserProfile(id, { name, avatarPath })
+  A->>K: updateTag("posts"), updateTag("comments")<br/>캐시된 글 목록·상세·댓글의 작성자 표시를 지운다
+  A->>K: revalidatePath("/", "layout")<br/>헤더(UserMenu)는 루트 레이아웃에 있으므로 레이아웃부터
+  A-->>F: { ok: true } → 토스트. 새 RSC payload 로 헤더와 폼이 새 이름·아바타로 바뀐다
+```
+
+| 파일 | 역할 |
+| --- | --- |
+| `src/app/profile/page.tsx` | `requireUser()`. 제목은 정적 셸, 폼은 Suspense 안 |
+| `src/app/profile/profile-form.tsx` | `useActionState`. 아바타가 있으면 "현재 아바타 삭제" 체크박스 |
+| `src/app/profile/actions.ts` | 검증 → 파일 저장/삭제 → DB → 태그·레이아웃 무효화 |
+| `src/components/avatar.tsx` | 이미지 또는 이름 첫 글자. 서버·클라이언트 양쪽에서 씀 |
+| `src/lib/users.ts` | `avatarPath` 필드, `updateUserProfile` |
+
+작성자 표시는 글 목록·상세·모달·무한 스크롤·댓글이 모두 같은 `Avatar` 를 쓴다. 글과 댓글 조회가 `users` 를 JOIN 해 `authorAvatar` 를 함께 가져오기 때문에 화면은 이름 옆에 아바타만 그리면 된다.
 
 ### 📄 파일
 
@@ -881,7 +928,7 @@ model Comment {
 
 ### 💡 개념
 
-**태그를 잘게 나누는 이유.** 댓글이 달릴 때 글 본문 캐시까지 지우면 낭비다. `post-3-comments` 만 지우면 `getPost(3)` 은 그대로 HIT 이다.
+**태그를 잘게 나누는 이유.** 댓글이 달릴 때 글 본문 캐시까지 지우면 낭비다. `post-3-comments` 만 지우면 `getPost(3)` 은 그대로 HIT 이다. 반대로 전역 태그 `comments` 도 함께 달아 두어, 작성자 이름·아바타가 바뀌면(프로필 수정) 모든 글의 댓글 캐시를 한 번에 지울 수 있다.
 
 **JOIN 대신 관계.** `c.author.name` 처럼 중첩 객체로 온다. `toComment` 가 그것을 평탄한 `authorName` 으로 편다. 타입은 `Prisma.CommentGetPayload<{ include: typeof withAuthor }>` 가 만들어 주므로 `c.author` 가 존재한다는 것을 TypeScript 도 안다.
 
@@ -913,7 +960,7 @@ flowchart TB
 
 ### 📄 파일
 
-`src/lib/uploads.ts`, `src/lib/uploads-validate.ts`, `src/app/api/uploads/[name]/route.ts`, `src/app/posts/post-form.tsx` 는 main 과 동일. `src/lib/posts.ts` 의 `updatePost` 와 `src/lib/sql-now.ts` 가 다르다.
+프로필 아바타(`src/app/profile/actions.ts`)도 같은 `saveImage`/`deleteImage` 규칙을 쓰고, 표시는 `src/components/avatar.tsx`(이미지 또는 이름 첫 글자)가 맡는다. 파일: `src/lib/uploads.ts`, `src/lib/uploads-validate.ts`, `src/app/api/uploads/[name]/route.ts`, `src/app/posts/post-form.tsx` 는 main 과 동일. `src/lib/posts.ts` 의 `updatePost` 와 `src/lib/sql-now.ts` 가 다르다.
 
 ---
 
@@ -1383,6 +1430,7 @@ flowchart LR
 | 비밀번호 해시, JWT 세션, DAL, 3겹 방어 | 6 | `password.ts`, `session.ts`, `dal.ts`, `proxy.ts` |
 | CASCADE, 트리 조립 | 7 | `schema.prisma`, `comments.ts` |
 | 파일 업로드 | 8 | `uploads.ts` |
+| 프로필, 아바타 | 6, 8 | `app/profile/`, `components/avatar.tsx` |
 | SWR, TanStack Query, 커서, `use()` | 9 | `(demos)/` |
 | Bearer, 리프레시 토큰, API 키, 레이트 리밋, CORS | 10 | `lib/api/`, `refresh-tokens.ts`, `api-keys.ts` |
 | 테스트 4층, 마이그레이션 SQL 임시 DB | 11 | `src/test/setup.ts`, `e2e/` |
@@ -1772,6 +1820,7 @@ flowchart TB
 | `posts/actions.ts` | `createPostAction` | `new-post-form.tsx` → `post-form.tsx` | ②, multipart 로 파일까지 |
 | | `updatePostAction` | `edit/page.tsx` 가 `bind(null, id)` 해서 `post-form.tsx` 에 | ② + `bind` |
 | | `deletePostAction` | `delete-post-button.tsx` | ③ |
+| `profile/actions.ts` | `updateProfileAction` | `profile/profile-form.tsx` | ②, multipart 로 아바타까지. `updateTag("posts")`·`updateTag("comments")` 로 캐시된 작성자 표시를 지우고 `revalidatePath("/", "layout")` 로 헤더까지 다시 그린다 |
 | | `addCommentAction`, `deleteCommentAction` | `comment-form.tsx`, `delete-comment-button.tsx` | ② + `bind(null, postId, parentId)` / ③ |
 | | `refreshPostsNowAction`, `refreshPostsInBackgroundAction`, `refreshReleasesAction` | `cache-controls.tsx`, `refresh-button.tsx` | ③, 데이터는 안 바꾸고 캐시만 |
 
@@ -1923,6 +1972,7 @@ flowchart TB
 - **`router.back()`**: 모달을 닫는 데 쓴다 (5장). 모달을 연 것이 곧 URL 이동이었으므로 뒤로 가면 닫힌다.
 - **`useTransition` 으로 감싼 이동**: 새 화면이 준비될 때까지 현재 화면을 유지하고 `isPending` 만 켠다. 검색창이 Suspense fallback 으로 깜빡이지 않는 이유다.
 - **뒤로 가기**: 클라이언트 캐시에 남아 있으면 서버 요청 없이 즉시 복원된다.
+- **Server Action 의 `redirect()` 로 떠난 페이지는 잠시 숨은 채 남는다.** 가입 뒤 `/posts` 로 가도 가입 폼의 `<main>` 이 `display: none` 으로 DOM 에 남아 있을 수 있다 (React 의 Activity 로 이전 세그먼트를 보존). 사용자에게는 안 보이지만, `#name` 같은 CSS 셀렉터 기반 테스트는 두 개를 잡을 수 있다. `e2e/profile.spec.ts` 가 `getByRole("main")` 로 보이는 영역만 고르는 이유다.
 
 ### C-7. 전체 여정을 한 그림으로
 
@@ -1975,7 +2025,7 @@ flowchart TB
 | `loading.tsx` / `error.tsx` / `not-found.tsx` | 세그먼트의 Suspense fallback / Error Boundary / `notFound()` 결과 | 5장 |
 | Route Handler `route.ts` | HTTP 요청을 직접 받아 `Response` 를 돌려주는 파일. REST API 를 만드는 곳 | 3장, 10장 |
 | proxy (`src/proxy.ts`) | 라우트에 닿기 전에 실행되는 함수. 예전 이름 middleware | 6장, 10장 |
-| `next.config.ts` | `cacheComponents`, 리다이렉트 등 앱 전체 설정 | 1장, 5장 |
+| `next.config.ts` | `cacheComponents`, 리다이렉트 등 앱 전체 설정 | 1장, 5장. `allowedDevOrigins` 는 휴대폰 등 다른 기기에서 개발 서버에 LAN 주소로 접속할 때 허용할 호스트 |
 
 ### 서버와 브라우저
 

@@ -11,6 +11,7 @@ import Image from "next/image";
 import { notFound } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Avatar } from "@/components/avatar";
 import { getPost, getPostIds } from "@/lib/posts";
 import { imageUrl } from "@/lib/uploads";
 import { log } from "@/lib/study-log";
@@ -71,13 +72,15 @@ async function PostDetail({ params }: Pick<PageProps<"/posts/[id]">, "params">) 
           <h1 className="text-2xl font-semibold">{post.title}</h1>
           <Badge variant="secondary">#{post.id}</Badge>
         </div>
-        <p className="mt-1 text-xs text-muted-foreground">
-          {post.authorName ?? "작성자 없음"} · 작성 {post.createdAt} · 수정 {post.updatedAt}
-        </p>
+        <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+          <Avatar name={post.authorName} avatarPath={post.authorAvatar} size="sm" />
+          <span className="text-foreground">{post.authorName ?? "작성자 없음"}</span>
+          <span>작성 {post.createdAt} · 수정 {post.updatedAt}</span>
+        </div>
         {post.imagePath && (
           // next/image: 크기를 모르는 업로드 이미지는 fill + 부모의 relative/aspect 로 자리를 잡는다.
           // 브라우저 폭에 맞춰 리사이즈·WebP 변환된 결과가 /_next/image 를 통해 내려온다 (Network 탭 확인).
-          <div className="relative mt-4 aspect-video overflow-hidden rounded-lg border">
+          <figure className="relative mt-4 aspect-video overflow-hidden rounded-lg border">
             <Image
               src={imageUrl(post.imagePath)}
               alt={post.title}
@@ -86,7 +89,7 @@ async function PostDetail({ params }: Pick<PageProps<"/posts/[id]">, "params">) 
               className="object-cover"
               priority
             />
-          </div>
+          </figure>
         )}
         {/* whitespace-pre-line: 저장된 줄바꿈을 그대로 표시 */}
         <div className="mt-6 whitespace-pre-line text-sm leading-relaxed">

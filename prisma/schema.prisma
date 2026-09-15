@@ -21,6 +21,7 @@ model User {
   email        String   @unique
   name         String
   passwordHash String   @map("password_hash")
+  avatarPath   String?  @map("avatar_path") // 아바타 파일명 (data/uploads/). NULL 이면 없음
   createdAt    String   @default(dbgenerated("(datetime('now'))")) @map("created_at")
 
   posts         Post[]

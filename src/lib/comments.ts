@@ -20,6 +20,7 @@ export type Comment = {
   parentId: number | null;
   authorId: number;
   authorName: string;
+  authorAvatar: string | null; // 작성자 아바타 파일명
   content: string;
   createdAt: string;
 };
@@ -29,7 +30,7 @@ export type CommentThread = Comment & { replies: Comment[] };
 
 // "작성자 이름까지 같이 가져와라" 는 include 옵션. SQL 의 JOIN 에 해당.
 // satisfies 로 타입을 검사받되, 값 자체는 리터럴로 유지해 아래 GetPayload 에 넘긴다.
-const withAuthor = { author: { select: { name: true } } } satisfies Prisma.CommentInclude;
+const withAuthor = { author: { select: { name: true, avatarPath: true } } } satisfies Prisma.CommentInclude;
 // 위 include 로 조회했을 때의 행 타입. 손으로 적던 CommentRow 를 Prisma 가 대신 만들어 준다.
 type CommentWithAuthor = Prisma.CommentGetPayload<{ include: typeof withAuthor }>;
 
@@ -41,6 +42,7 @@ function toComment(c: CommentWithAuthor): Comment {
     parentId: c.parentId,
     authorId: c.authorId,
     authorName: c.author.name, // include 덕분에 c.author 가 존재한다 (타입도 안다)
+    authorAvatar: c.author.avatarPath,
     content: c.content,
     createdAt: c.createdAt,
   };
@@ -59,7 +61,7 @@ export function commentsTag(postId: number): string {
 export async function getCommentThreads(postId: number): Promise<CommentThread[]> {
   "use cache";
   cacheLife("hours");
-  cacheTag(commentsTag(postId));
+  cacheTag(commentsTag(postId), "comments"); // 글별 태그 + 전역 태그 (작성자 이름·아바타가 바뀌면 전부 지운다)
   log.cache(`getCommentThreads(postId=${postId}) — 몸체 실행, Prisma findMany. 태그: ${commentsTag(postId)}`);
 
   const rows = await prisma.comment.findMany({ where: { postId }, include: withAuthor, orderBy: { id: "asc" } });

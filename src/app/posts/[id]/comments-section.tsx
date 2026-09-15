@@ -2,6 +2,7 @@
 // 댓글 목록은 "use cache" 로 캐시되고(모두 공유), 현재 사용자는 요청마다 읽는다.
 // 두 가지를 여기서 합쳐 "내 댓글에만 삭제 버튼" 을 그린다.
 import { getCurrentUser } from "@/lib/dal";
+import { Avatar } from "@/components/avatar";
 import { getCommentThreads, type Comment } from "@/lib/comments";
 import { log } from "@/lib/study-log";
 import { CommentForm } from "./comment-form";
@@ -64,6 +65,7 @@ function CommentItem({ comment, currentUserId }: { comment: Comment; currentUser
   return (
     <div>
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <Avatar name={comment.authorName} avatarPath={comment.authorAvatar} size="xs" />
         <span className="font-medium text-foreground">{comment.authorName}</span>
         <span>{comment.createdAt}</span>
         {isMine && <DeleteCommentButton id={comment.id} />}

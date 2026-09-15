@@ -19,6 +19,7 @@ export type Post = {
   content: string;
   authorId: number | null;
   authorName: string | null;
+  authorAvatar: string | null; // 작성자 아바타 파일명 (users.avatar_path)
   imagePath: string | null;
   createdAt: string;
   updatedAt: string;
@@ -26,7 +27,7 @@ export type Post = {
 
 // 작성자 이름까지 함께 가져오는 공통 include. SQL 의 LEFT JOIN 에 해당한다.
 // (author 가 없을 수 있는 글(authorId NULL)은 author 가 null 로 온다 → LEFT JOIN 과 같은 의미)
-const withAuthor = { author: { select: { name: true } } } satisfies Prisma.PostInclude;
+const withAuthor = { author: { select: { name: true, avatarPath: true } } } satisfies Prisma.PostInclude;
 // 위 include 로 조회했을 때의 행 타입. main 의 PostRow 를 손으로 적을 필요가 없다.
 type PostWithAuthor = Prisma.PostGetPayload<{ include: typeof withAuthor }>;
 
@@ -37,6 +38,7 @@ function toPost(p: PostWithAuthor): Post {
     content: p.content,
     authorId: p.authorId,
     authorName: p.author?.name ?? null,
+    authorAvatar: p.author?.avatarPath ?? null,
     imagePath: p.imagePath,
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,

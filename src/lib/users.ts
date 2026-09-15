@@ -11,16 +11,17 @@ export type User = {
   id: number;
   name: string;
   email: string;
+  avatarPath: string | null; // 아바타 파일명 (data/uploads/). 화면에서는 /api/uploads/<파일명>
 };
 
 // 로그인 검증에만 쓰는 모양. main 의 DB 행 이름(snake_case)을 그대로 유지해 호출부를 안 고쳐도 되게 했다.
-type UserRow = User & { password_hash: string; created_at: string };
+type UserRow = Omit<User, "avatarPath"> & { password_hash: string; avatar_path: string | null; created_at: string };
 
 // main: SELECT id, name, email FROM users WHERE id = ?
 export async function findUserById(id: number): Promise<User | null> {
   if (!Number.isInteger(id)) return null; // NaN 등은 Prisma 가 "id 가 없다" 며 거부한다. SQLite 는 빈 결과였으므로 맞춘다
   // findUnique: 유니크 컬럼(id, email)으로 한 건. select 로 필요한 컬럼만 고르면 반환 타입이 { id, name, email } 로 추론된다
-  return prisma.user.findUnique({ where: { id }, select: { id: true, name: true, email: true } });
+  return prisma.user.findUnique({ where: { id }, select: { id: true, name: true, email: true, avatarPath: true } });
 }
 
 /**
@@ -31,7 +32,7 @@ export async function findUserWithHashByEmail(email: string): Promise<UserRow | 
   const u = await prisma.user.findUnique({ where: { email: email.toLowerCase() } }); // 이메일은 소문자로 저장·조회
   if (!u) return null;
   // Prisma 는 camelCase(passwordHash)로 돌려준다. main 호출부는 password_hash 를 기대하므로 같은 모양으로 맞춘다.
-  return { id: u.id, name: u.name, email: u.email, password_hash: u.passwordHash, created_at: u.createdAt };
+  return { id: u.id, name: u.name, email: u.email, password_hash: u.passwordHash, avatar_path: u.avatarPath, created_at: u.createdAt };
 }
 
 // main: INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?) RETURNING id, name, email
@@ -39,6 +40,18 @@ export async function createUser(name: string, email: string, passwordHash: stri
   // create 는 만든 행을 돌려준다 (SQL 의 RETURNING 과 같다). select 로 비밀번호 해시는 빼고 받는다.
   return prisma.user.create({
     data: { name, email: email.toLowerCase(), passwordHash },
-    select: { id: true, name: true, email: true },
+    select: { id: true, name: true, email: true, avatarPath: true },
+  });
+}
+
+/**
+ * 프로필 수정 (이름, 아바타). 권한 검사(본인인지)는 호출하는 Server Action 이 한다.
+ * main: UPDATE users SET name = ?, avatar_path = ? WHERE id = ?
+ */
+export async function updateUserProfile(id: number, data: { name: string; avatarPath: string | null }): Promise<User> {
+  return prisma.user.update({
+    where: { id },
+    data: { name: data.name, avatarPath: data.avatarPath },
+    select: { id: true, name: true, email: true, avatarPath: true },
   });
 }

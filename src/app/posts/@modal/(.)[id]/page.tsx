@@ -8,6 +8,7 @@ import { Suspense } from "react";
 import Image from "next/image";
 import { RouteModal } from "@/components/modal";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Avatar } from "@/components/avatar";
 import { getPost, getPostIds } from "@/lib/posts";
 import { imageUrl } from "@/lib/uploads";
 import { log } from "@/lib/study-log";
@@ -42,9 +43,11 @@ async function ModalContent({ params }: Pick<PageProps<"/posts/[id]">, "params">
 
   return (
     <RouteModal title={post.title}>
-      <p className="text-xs text-muted-foreground">
-        {post.authorName ?? "작성자 없음"} · {post.createdAt}
-      </p>
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <Avatar name={post.authorName} avatarPath={post.authorAvatar} size="sm" />
+        <span className="text-foreground">{post.authorName ?? "작성자 없음"}</span>
+        <span>{post.createdAt}</span>
+      </div>
       {post.imagePath && (
         <div className="relative aspect-video overflow-hidden rounded-lg border">
           <Image src={imageUrl(post.imagePath)} alt={post.title} fill sizes="640px" className="object-cover" />

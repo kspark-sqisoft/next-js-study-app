@@ -6,9 +6,11 @@ import { countPosts, getPostsByCursor, searchPosts, type Post } from "@/lib/post
 import { log } from "@/lib/study-log";
 
 const MAX_LIMIT = 20;
+// Safari 가 JSON 을 그대로 열 때 한글이 깨지지 않도록 charset 을 명시한다
+const JSON_HEADERS = { "Content-Type": "application/json; charset=utf-8" };
 
-function toItem({ id, title, authorName, imagePath, createdAt }: Post) {
-  return { id, title, authorName, imagePath, createdAt }; // 필요한 필드만 (본문 전체는 내려보내지 않는다)
+function toItem({ id, title, authorName, authorAvatar, imagePath, createdAt }: Post) {
+  return { id, title, authorName, authorAvatar, imagePath, createdAt }; // 필요한 필드만 (본문 전체는 내려보내지 않는다)
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -27,10 +29,10 @@ export async function GET(request: NextRequest) {
     const cursorParam = sp.get("cursor");
     const cursor = cursorParam ? Number(cursorParam) : null;
     if (cursor !== null && !Number.isInteger(cursor)) {
-      return Response.json({ error: "cursor 는 정수여야 합니다." }, { status: 400 });
+      return Response.json({ error: "cursor 는 정수여야 합니다." }, { status: 400, headers: JSON_HEADERS });
     }
     const { posts, nextCursor } = await getPostsByCursor(q, cursor, limit);
-    return Response.json({ query: q, posts: posts.map(toItem), nextCursor });
+    return Response.json({ query: q, posts: posts.map(toItem), nextCursor }, { headers: JSON_HEADERS });
   }
 
   // 검색 모드 (기존 동작)
@@ -39,5 +41,5 @@ export async function GET(request: NextRequest) {
     query: q,
     total,
     posts: found.map(({ id, title, createdAt }) => ({ id, title, createdAt })),
-  });
+  }, { headers: JSON_HEADERS });
 }

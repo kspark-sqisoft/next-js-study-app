@@ -55,8 +55,8 @@ export async function proxy(request: NextRequest) {
     `${request.method} ${pathname} → 쿠키만 확인: ${isLoggedIn ? `로그인(userId=${session!.userId})` : "비로그인"} (DB 조회 없음, 보안 경계 아님)`,
   );
 
-  // 로그인이 필요한 경로: 글 수정 페이지
-  const needsAuth = /^\/posts\/[^/]+\/edit$/.test(pathname);
+  // 로그인이 필요한 경로: 글 수정 페이지, 프로필
+  const needsAuth = /^\/posts\/[^/]+\/edit$/.test(pathname) || pathname === "/profile";
   if (needsAuth && !isLoggedIn) {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("next", pathname); // 로그인 후 돌아올 곳 (학습용, 현재는 사용 안 함)
@@ -76,5 +76,5 @@ export async function proxy(request: NextRequest) {
 
 // 필요한 경로에서만 실행 (정적 파일, 이미지 등은 제외해서 불필요한 부하를 막는다)
 export const config = {
-  matcher: ["/login", "/signup", "/posts/:id/edit", "/api/v1", "/api/v1/:path*"],
+  matcher: ["/login", "/signup", "/posts/:id/edit", "/profile", "/api/v1", "/api/v1/:path*"],
 };
