@@ -131,8 +131,12 @@
   }
   html {
     @apply font-sans;
-    /* 브라우저 기본 위젯(스크롤바, 체크박스, 날짜 입력)도 테마를 따르게 */
-    color-scheme: light;
+    /* 브라우저 기본 위젯(스크롤바, 체크박스, 날짜 입력)도 테마를 따르게.
+       `only` 는 "이 라이트는 의도된 색이니 브라우저가 임의로 어둡게 바꾸지 말라" 는 표준 키워드다. OS 가 다크인 안드로이드에서
+       크롬의 자동 다크 테마(라이트 전용 사이트를 강제로 어둡게 뒤집는 기능)가 이 값이 없으면 라이트 테마를 거의 다크처럼 만든다.
+       next-themes 가 <html style="color-scheme"> 를 인라인으로 써서 이 규칙을 덮지 않도록 theme-provider.tsx 에서 꺼 두었다.
+       아래 .dark 는 "페이지가 다크를 직접 지원한다" 는 뜻이라 그 자체로 자동 다크 대상에서 빠진다. */
+    color-scheme: only light;
   }
   html.dark {
     color-scheme: dark;

@@ -24,6 +24,20 @@ export default defineConfig({
       // 시스템에 설치된 Chrome 을 사용 (브라우저 다운로드 불필요).
       // 없으면 `npx playwright install chromium` 후 channel 줄을 지우면 된다.
       use: { ...devices["Desktop Chrome"], channel: "chrome" },
+      testIgnore: /theme-force-dark\.spec\.ts/,
+    },
+    {
+      // 안드로이드 크롬 "자동 다크 테마"(OS 가 다크일 때 라이트 전용 사이트를 강제로 어둡게 뒤집는 기능) 재현.
+      // 같은 Blink 엔진 설정을 데스크톱 크롬에서 켜고, OS 다크 모드를 흉내 낸다. theme-force-dark.spec.ts 만 여기서 돈다.
+      name: "chrome-force-dark",
+      testMatch: /theme-force-dark\.spec\.ts/,
+      use: {
+        ...devices["Desktop Chrome"],
+        channel: "chrome",
+        viewport: { width: 412, height: 915 },
+        colorScheme: "dark",
+        launchOptions: { args: ["--blink-settings=forceDarkModeEnabled=true"] },
+      },
     },
   ],
   webServer: {

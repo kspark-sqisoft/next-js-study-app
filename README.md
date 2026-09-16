@@ -59,6 +59,8 @@ Next.js 16 개발 서버는 `next.config.ts` 의 `allowedDevOrigins` 에 없는 
 
 **상태 표시줄(시계·배터리 영역) 색.** 안드로이드 크롬과 iOS 18 까지의 Safari 는 `<meta name="theme-color">` 를 읽으므로 `theme-color-script.tsx`(hydration 전)와 `theme-color-sync.tsx`(토글 뒤)가 테마에 맞춰 그 값을 바꾼다. iOS 26 부터 Safari 는 이 메타를 무시하고, 화면 위쪽 가장자리에 붙은 sticky/fixed 요소, 즉 사이트 헤더의 `background-color` 를 직접 읽어 칠한다. 이 값은 페이지 로드·주소창 크기 변화·fixed 요소의 추가/제거 때만 다시 읽고 색만 바뀌면 다시 읽지 않는다. 그래서 헤더 배경은 블러 없는 불투명 색으로 두고(블러가 있으면 "색 없음" 으로 보고 로드 때 배경으로 고정한다), 테마가 바뀌면 `theme-color-sync.tsx` 가 보이지 않는 1px fixed 요소를 잠깐 넣었다 빼서 다시 읽게 한다.
 
+**안드로이드에서 라이트 테마가 어둡게 보이던 문제.** OS 가 다크 모드인 안드로이드 크롬은 라이트 전용 사이트를 "자동 다크 테마" 로 강제로 어둡게 뒤집는다(삼성 인터넷의 다크 모드도 비슷하게 동작한다). 페이지가 `color-scheme` 으로 다크를 지원한다고 밝히거나(`dark`), "이 라이트는 의도된 색" 이라고 밝히면(`only light`) 건드리지 않는다. 그래서 `globals.css` 는 `html { color-scheme: only light }`, `html.dark { color-scheme: dark }` 로 두고, next-themes 가 `<html style="color-scheme: light">` 를 인라인으로 써서(`only` 가 없다) 이 규칙을 덮어쓰지 않도록 `theme-provider.tsx` 에서 `enableColorScheme={false}` 로 껐다. `e2e/theme-force-dark.spec.ts` 가 크롬의 강제 다크 설정을 켠 채로 이를 확인한다. 한편 **주소창 색은 별개다.** 안드로이드 크롬은 브라우저 자체가 다크 테마일 때(기본값은 OS 를 따른다) 페이지의 `theme-color` 를 무시하고 주소창을 자기 다크색으로 칠한다(홈 화면에 설치한 PWA 만 예외). 그래서 OS 가 다크인 안드로이드에서는 라이트 테마를 골라도 주소창은 어둡게 남는데, 이는 브라우저 정책이라 페이지에서 바꿀 수 없다.
+
 ## 용어 사전 (모르는 말이 나오면 여기로)
 
 이 문서에는 낯선 용어가 많이 나온다. 각 용어를 **쉬운 말 한두 줄** 로 풀고, 자세한 설명이 있는 절 번호를 붙였다. 본문을 읽다 막히면 이 표로 돌아온다.
